@@ -15,6 +15,7 @@ pub use error::AnalyticBeamError;
 
 #[cfg(any(feature = "cuda", feature = "hip"))]
 pub use gpu::AnalyticBeamGpu;
+use ndarray::Array2;
 
 use std::f64::consts::{FRAC_PI_2, TAU};
 
@@ -34,6 +35,9 @@ pub enum AnalyticType {
 
     /// Behaviour derived from the RTS.
     Rts,
+
+    /// SKA-Low array factor beam
+    Ska,
 }
 
 impl AnalyticType {
@@ -44,8 +48,19 @@ impl AnalyticType {
         match self {
             AnalyticType::MwaPb => 0.278,
             AnalyticType::Rts => 0.30,
+            AnalyticType::Ska => 0.00, // Array factor does not need height
         }
     }
+}
+
+/// A struct for specifically holding SKA information
+pub struct SkaConfig {
+    pub number_of_stations: usize,
+    pub feed_angles_rad: Vec<Vec<f64>>,
+    pub feed_coordinates: Vec<Array2<f64>>,
+
+    /// Needed for transforming ECEF coordinates from OSKAR to local coordinates
+    pub ecef_to_local_mats: Vec<Array2<f64>>,
 }
 
 /// The main struct to be used for calculating analytic pointings.
@@ -63,7 +78,12 @@ pub struct AnalyticBeam {
     /// have 4 bowties per row, for a total of 16 bowties. As of October 2023,
     /// the only exception is the CRAM tile, which has 8 bowties per row, for a
     /// total of 64 bowties.
+    // ERIC NOTE: Probably just set this to default 16, for the SKA case. Don't want to break it
+    // by making this an option.
     pub(crate) bowties_per_row: u8,
+
+    // ERIC NOTE: The information I need for the ska beam.
+    pub(crate) ska_config: Option<SkaConfig>,
 }
 
 impl Default for AnalyticBeam {
@@ -73,6 +93,7 @@ impl Default for AnalyticBeam {
             dipole_height: beam_type.get_default_dipole_height(),
             beam_type,
             bowties_per_row: 4,
+            ska_config: None,
         }
     }
 }
@@ -92,6 +113,17 @@ impl AnalyticBeam {
             dipole_height: beam_type.get_default_dipole_height(),
             beam_type,
             bowties_per_row: 4,
+            ska_config: None,
+        }
+    }
+
+    pub fn new_ska() -> AnalyticBeam {
+        let beam_type = AnalyticType::Ska;
+        AnalyticBeam {
+            dipole_height: beam_type.get_default_dipole_height(),
+            beam_type,
+            bowties_per_row: 16,
+            ska_config: None,
         }
     }
 
@@ -115,6 +147,7 @@ impl AnalyticBeam {
             dipole_height: dipole_height_metres,
             beam_type,
             bowties_per_row,
+            ska_config: None,
         }
     }
 
