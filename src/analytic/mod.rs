@@ -217,26 +217,36 @@ impl AnalyticBeam {
         if za_rad > FRAC_PI_2 {
             return Err(AnalyticBeamError::BelowHorizon { za: za_rad });
         }
-        let num_bowties = usize::from(self.bowties_per_row * self.bowties_per_row);
-        if delays.len() != num_bowties {
-            return Err(AnalyticBeamError::IncorrectDelaysLength {
-                got: delays.len(),
-                expected: num_bowties,
-            });
-        }
-        if amps.len() != num_bowties && amps.len() != num_bowties * 2 {
-            return Err(AnalyticBeamError::IncorrectAmpsLength {
-                got: amps.len(),
-                expected1: num_bowties,
-                expected2: num_bowties * 2,
-            });
+
+        // Validate delay length only if NOT Ska analytic beam type
+        if !matches!(self.beam_type, AnalyticType::Ska) {
+            let num_bowties = usize::from(self.bowties_per_row * self.bowties_per_row);
+            if delays.len() != num_bowties {
+                return Err(AnalyticBeamError::IncorrectDelaysLength {
+                    got: delays.len(),
+                    expected: num_bowties,
+                });
+            }
+            if amps.len() != num_bowties && amps.len() != num_bowties * 2 {
+                return Err(AnalyticBeamError::IncorrectAmpsLength {
+                    got: amps.len(),
+                    expected1: num_bowties,
+                    expected2: num_bowties * 2,
+                });
+            }
         }
 
         let amps = fix_amps(amps, delays);
-        let (amps, delays) = if matches!(self.beam_type, AnalyticType::Rts) {
-            reorder_to_rts(&amps, delays)
-        } else {
-            (amps.to_vec(), delay_ints_to_floats(delays))
+        // let (amps, delays) = if matches!(self.beam_type, AnalyticType::Rts) {
+        //     reorder_to_rts(&amps, delays)
+        // } else {
+        //     (amps.to_vec(), delay_ints_to_floats(delays))
+        // };
+        let (amps, delays) = match self.beam_type {
+            AnalyticType::Rts => reorder_to_rts(&amps, delays),
+            AnalyticType::MwaPb => (amps.to_vec(), delay_ints_to_floats(delays)),
+            AnalyticType::Ska => (vec![], vec![]), // Don't need amps or delays for SKA array
+                                                   // factor logic
         };
 
         let lambda_m = VEL_C / freq_hz as f64;
@@ -562,91 +572,108 @@ impl AnalyticBeam {
         let (s_az, c_az) = az_rad.sin_cos();
         let (s_za, c_za) = za_rad.sin_cos();
 
-        let mut jones = match self.beam_type {
-            AnalyticType::MwaPb => Jones::from([
-                c64::new(c_za * s_az, 0.0),
-                c64::new(c_az, 0.0),
-                c64::new(c_za * c_az, 0.0),
-                c64::new(-s_az, 0.0),
-            ]),
-            AnalyticType::Rts => {
-                let hadec = AzEl::from_radians(az_rad, FRAC_PI_2 - za_rad).to_hadec(latitude_rad);
-                let (s_ha, c_ha) = hadec.ha.sin_cos();
-                let (s_dec, c_dec) = hadec.dec.sin_cos();
+        match self.beam_type {
+            AnalyticType::Rts | AnalyticType::MwaPb => {
+                let mut jones = match self.beam_type {
+                    AnalyticType::MwaPb => Jones::from([
+                        c64::new(c_za * s_az, 0.0),
+                        c64::new(c_az, 0.0),
+                        c64::new(c_za * c_az, 0.0),
+                        c64::new(-s_az, 0.0),
+                    ]),
+                    AnalyticType::Rts => {
+                        let hadec =
+                            AzEl::from_radians(az_rad, FRAC_PI_2 - za_rad).to_hadec(latitude_rad);
+                        let (s_ha, c_ha) = hadec.ha.sin_cos();
+                        let (s_dec, c_dec) = hadec.dec.sin_cos();
 
-                Jones::from([
-                    c64::new(cos_latitude * c_dec + sin_latitude * s_dec * c_ha, 0.0),
-                    c64::new(-sin_latitude * s_ha, 0.0),
-                    c64::new(s_dec * s_ha, 0.0),
-                    c64::new(c_ha, 0.0),
-                ])
-            }
-        };
+                        Jones::from([
+                            c64::new(cos_latitude * c_dec + sin_latitude * s_dec * c_ha, 0.0),
+                            c64::new(-sin_latitude * s_ha, 0.0),
+                            c64::new(s_dec * s_ha, 0.0),
+                            c64::new(c_ha, 0.0),
+                        ])
+                    }
+                    AnalyticType::Ska => {
+                        unreachable!("This should be unreachable");
+                    }
+                };
 
-        let proj_e = s_za * s_az;
-        let proj_n = s_za * c_az;
-        // The RTS code uses proj_z as below, but dip_z is always set to 0.0, so
-        // we don't actually need proj_z. lmao
-        // let proj_z = c_za;
+                let proj_e = s_za * s_az;
+                let proj_n = s_za * c_az;
+                // The RTS code uses proj_z as below, but dip_z is always set to 0.0, so
+                // we don't actually need proj_z. lmao
+                // let proj_z = c_za;
 
-        let multiplier = -TAU / lambda_m;
+                let multiplier = -TAU / lambda_m;
 
-        // Loop over each dipole.
-        let mut array_factor = c64::new(0.0, 0.0);
-        for (k, (&delay, &amp)) in delays.iter().zip(amps.iter()).enumerate() {
-            let col = k % usize::from(self.bowties_per_row);
-            let row = k / usize::from(self.bowties_per_row);
-            let (dip_e, dip_n) = match self.beam_type {
-                AnalyticType::MwaPb => (
-                    (col as f64 - 1.5) * MWA_DPL_SEP,
-                    (row as f64 - 1.5) * MWA_DPL_SEP,
-                ),
-                AnalyticType::Rts => (
-                    (row as f64 - 1.5) * MWA_DPL_SEP,
-                    (col as f64 - 1.5) * MWA_DPL_SEP,
-                ),
-            };
-            // let dip_z = 0.0;
+                // Loop over each dipole.
+                let mut array_factor = c64::new(0.0, 0.0);
+                for (k, (&delay, &amp)) in delays.iter().zip(amps.iter()).enumerate() {
+                    let col = k % usize::from(self.bowties_per_row);
+                    let row = k / usize::from(self.bowties_per_row);
+                    let (dip_e, dip_n) = match self.beam_type {
+                        AnalyticType::MwaPb => (
+                            (col as f64 - 1.5) * MWA_DPL_SEP,
+                            (row as f64 - 1.5) * MWA_DPL_SEP,
+                        ),
+                        AnalyticType::Rts => (
+                            (row as f64 - 1.5) * MWA_DPL_SEP,
+                            (col as f64 - 1.5) * MWA_DPL_SEP,
+                        ),
+                        AnalyticType::Ska => {
+                            unreachable!("This should be unreachable");
+                        }
+                    };
+                    // let dip_z = 0.0;
 
-            let phase = match self.beam_type {
-                AnalyticType::MwaPb => {
-                    -multiplier
-                        * (dip_e * proj_e
+                    let phase = match self.beam_type {
+                        AnalyticType::MwaPb => {
+                            -multiplier
+                                * (dip_e * proj_e
                          + dip_n * proj_n
                          // + dip_z * proj_z
                          - delay)
-                }
-                AnalyticType::Rts => {
-                    multiplier
-                        * (dip_e * proj_e
+                        }
+                        AnalyticType::Rts => {
+                            multiplier
+                                * (dip_e * proj_e
                          + dip_n * proj_n
                          // + dip_z * proj_z
                          - delay)
+                        }
+                        AnalyticType::Ska => {
+                            unreachable!("This should be unreachable");
+                        }
+                    };
+                    let (s_phase, c_phase) = phase.sin_cos();
+                    array_factor += amp * c64::new(c_phase, s_phase);
                 }
-            };
-            let (s_phase, c_phase) = phase.sin_cos();
-            array_factor += amp * c64::new(c_phase, s_phase);
-        }
 
-        let mut ground_plane = 2.0 * (TAU * self.dipole_height / lambda_m * c_za).sin()
-            / usize::from(self.bowties_per_row).pow(2) as f64;
-        if norm_to_zenith {
-            ground_plane /= 2.0 * (TAU * self.dipole_height / lambda_m).sin();
-        }
+                let mut ground_plane = 2.0 * (TAU * self.dipole_height / lambda_m * c_za).sin()
+                    / usize::from(self.bowties_per_row).pow(2) as f64;
+                if norm_to_zenith {
+                    ground_plane /= 2.0 * (TAU * self.dipole_height / lambda_m).sin();
+                }
 
-        jones[0] *= ground_plane * array_factor;
-        jones[1] *= ground_plane * array_factor;
-        jones[2] *= ground_plane * array_factor;
-        jones[3] *= ground_plane * array_factor;
+                jones[0] *= ground_plane * array_factor;
+                jones[1] *= ground_plane * array_factor;
+                jones[2] *= ground_plane * array_factor;
+                jones[3] *= ground_plane * array_factor;
 
-        // The RTS deliberately sets the imaginary parts to 0.
-        if matches!(self.beam_type, AnalyticType::Rts) {
-            for j in jones.iter_mut() {
-                *j = c64::new(j.re, 0.0);
+                // The RTS deliberately sets the imaginary parts to 0.
+                if matches!(self.beam_type, AnalyticType::Rts) {
+                    for j in jones.iter_mut() {
+                        *j = c64::new(j.re, 0.0);
+                    }
+                }
+
+                jones
+            }
+            AnalyticType::Ska => {
+                // New SKA logic in here
             }
         }
-
-        jones
     }
 
     /// Prepare a compute-capable GPU device for beam-response computations
