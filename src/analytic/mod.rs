@@ -17,12 +17,17 @@ pub use error::AnalyticBeamError;
 pub use gpu::AnalyticBeamGpu;
 use ndarray::Array2;
 
-use std::f64::consts::{FRAC_PI_2, TAU};
+use std::f64::consts::{FRAC_PI_2, PI, TAU};
 
-use marlu::{c64, constants::VEL_C, rayon, AzEl, Jones};
+use marlu::{c64, constants::VEL_C, rayon, AzEl, Jones, RADec};
 use rayon::prelude::*;
 
 use crate::constants::{DELAY_STEP, MWA_DPL_SEP};
+use num_complex::Complex;
+// NOTE: Very hacky at the moment, this is needed because the SKA logic requires lst_rad, which
+// will be passed in via array_latitiude_rad. SKA logic does not use delays, if we had delays we
+// could change the logic to fit the MWA logic I think.
+const SKA_SITE_LATITUDE_RAD: f64 = 1.0;
 
 #[cfg(any(feature = "cuda", feature = "hip"))]
 use ndarray::prelude::*;
@@ -54,13 +59,19 @@ impl AnalyticType {
 }
 
 /// A struct for specifically holding SKA information
+#[derive(Clone)]
 pub struct SkaConfig {
+    /// Number of stations in array
     pub number_of_stations: usize,
-    pub feed_angles_rad: Vec<Vec<f64>>,
-    pub feed_coordinates: Vec<Array2<f64>>,
 
-    /// Needed for transforming ECEF coordinates from OSKAR to local coordinates
-    pub ecef_to_local_mats: Vec<Array2<f64>>,
+    /// Rotation angle for each station
+    pub feed_angles_rad: Option<Vec<Vec<f64>>>,
+
+    /// Coordinates of feeds within each station
+    pub feed_coordinates: Option<Vec<Array2<f64>>>,
+
+    /// Needed for SKA logic
+    pub phase_centre: RADec,
 }
 
 /// The main struct to be used for calculating analytic pointings.
@@ -117,13 +128,13 @@ impl AnalyticBeam {
         }
     }
 
-    pub fn new_ska() -> AnalyticBeam {
+    pub fn new_ska(ska_config: SkaConfig) -> AnalyticBeam {
         let beam_type = AnalyticType::Ska;
         AnalyticBeam {
             dipole_height: beam_type.get_default_dipole_height(),
             beam_type,
             bowties_per_row: 16,
-            ska_config: None,
+            ska_config: Some(ska_config),
         }
     }
 
@@ -175,16 +186,30 @@ impl AnalyticBeam {
         amps: &[f64],
         latitude_rad: f64,
         norm_to_zenith: bool,
+        tile_index: Option<usize>,
     ) -> Result<Jones<f64>, AnalyticBeamError> {
-        self.calc_jones_pair(
-            azel.az,
-            azel.za(),
-            freq_hz,
-            delays,
-            amps,
-            latitude_rad,
-            norm_to_zenith,
-        )
+        match self.beam_type {
+            AnalyticType::MwaPb | AnalyticType::Rts => self.calc_jones_pair(
+                azel.az,
+                azel.za(),
+                freq_hz,
+                delays,
+                amps,
+                latitude_rad,
+                norm_to_zenith,
+                None,
+            ),
+            AnalyticType::Ska => self.calc_jones_pair(
+                azel.az,
+                azel.za(),
+                freq_hz,
+                delays,
+                amps,
+                latitude_rad,
+                norm_to_zenith,
+                tile_index,
+            ),
+        }
     }
 
     /// Calculate the beam-response Jones matrix for a given direction and
@@ -213,6 +238,7 @@ impl AnalyticBeam {
         amps: &[f64],
         latitude_rad: f64,
         norm_to_zenith: bool,
+        tile_index: Option<usize>,
     ) -> Result<Jones<f64>, AnalyticBeamError> {
         if za_rad > FRAC_PI_2 {
             return Err(AnalyticBeamError::BelowHorizon { za: za_rad });
@@ -251,17 +277,32 @@ impl AnalyticBeam {
 
         let lambda_m = VEL_C / freq_hz as f64;
         let (s_lat, c_lat) = latitude_rad.sin_cos();
-        let jones = self.calc_jones_inner(
-            az_rad,
-            za_rad,
-            lambda_m,
-            latitude_rad,
-            s_lat,
-            c_lat,
-            &delays,
-            &amps,
-            norm_to_zenith,
-        );
+        let jones = match self.beam_type {
+            AnalyticType::MwaPb | AnalyticType::Rts => self.calc_jones_inner(
+                az_rad,
+                za_rad,
+                lambda_m,
+                latitude_rad,
+                s_lat,
+                c_lat,
+                &delays,
+                &amps,
+                norm_to_zenith,
+                None,
+            ),
+            AnalyticType::Ska => self.calc_jones_inner(
+                az_rad,
+                za_rad,
+                lambda_m,
+                latitude_rad,
+                s_lat,
+                c_lat,
+                &delays,
+                &amps,
+                norm_to_zenith,
+                tile_index,
+            ),
+        };
         Ok(jones)
     }
 
@@ -292,17 +333,31 @@ impl AnalyticBeam {
         amps: &[f64],
         latitude_rad: f64,
         norm_to_zenith: bool,
+        tile_index: Option<usize>,
     ) -> Result<Vec<Jones<f64>>, AnalyticBeamError> {
         let mut results = vec![Jones::default(); azels.len()];
-        self.calc_jones_array_inner(
-            azels,
-            freq_hz,
-            delays,
-            amps,
-            latitude_rad,
-            norm_to_zenith,
-            &mut results,
-        )?;
+        match self.beam_type {
+            AnalyticType::MwaPb | AnalyticType::Rts => self.calc_jones_array_inner(
+                azels,
+                freq_hz,
+                delays,
+                amps,
+                latitude_rad,
+                norm_to_zenith,
+                &mut results,
+                None,
+            )?,
+            AnalyticType::Ska => self.calc_jones_array_inner(
+                azels,
+                freq_hz,
+                delays,
+                amps,
+                latitude_rad,
+                norm_to_zenith,
+                &mut results,
+                tile_index,
+            )?,
+        };
         Ok(results)
     }
 
@@ -333,6 +388,7 @@ impl AnalyticBeam {
         latitude_rad: f64,
         norm_to_zenith: bool,
         results: &mut [Jones<f64>],
+        tile_index: Option<usize>,
     ) -> Result<(), AnalyticBeamError> {
         for azel in azels {
             let za = azel.za();
@@ -372,17 +428,33 @@ impl AnalyticBeam {
                     return Err(AnalyticBeamError::BelowHorizon { za: azel.za() });
                 }
 
-                let j = self.calc_jones_inner(
-                    azel.az,
-                    azel.za(),
-                    lambda_m,
-                    latitude_rad,
-                    s_lat,
-                    c_lat,
-                    &delays,
-                    &amps,
-                    norm_to_zenith,
-                );
+                let j = match self.beam_type {
+                    AnalyticType::MwaPb | AnalyticType::Rts => self.calc_jones_inner(
+                        azel.az,
+                        azel.za(),
+                        lambda_m,
+                        latitude_rad,
+                        s_lat,
+                        c_lat,
+                        &delays,
+                        &amps,
+                        norm_to_zenith,
+                        None,
+                    ),
+                    AnalyticType::Ska => self.calc_jones_inner(
+                        azel.az,
+                        azel.za(),
+                        lambda_m,
+                        latitude_rad,
+                        s_lat,
+                        c_lat,
+                        &delays,
+                        &amps,
+                        norm_to_zenith,
+                        tile_index,
+                    ),
+                };
+
                 *result = j;
 
                 Ok(())
@@ -417,6 +489,7 @@ impl AnalyticBeam {
         amps: &[f64],
         latitude_rad: f64,
         norm_to_zenith: bool,
+        tile_index: Option<usize>,
     ) -> Result<Vec<Jones<f64>>, AnalyticBeamError> {
         for &za in za_rad {
             if za > FRAC_PI_2 {
@@ -447,23 +520,44 @@ impl AnalyticBeam {
 
         let lambda_m = VEL_C / freq_hz as f64;
         let (s_lat, c_lat) = latitude_rad.sin_cos();
-        let out = az_rad
-            .par_iter()
-            .zip(za_rad.par_iter())
-            .map(|(&az, &za)| {
-                self.calc_jones_inner(
-                    az,
-                    za,
-                    lambda_m,
-                    latitude_rad,
-                    s_lat,
-                    c_lat,
-                    &delays,
-                    &amps,
-                    norm_to_zenith,
-                )
-            })
-            .collect();
+        let out = match self.beam_type {
+            AnalyticType::MwaPb | AnalyticType::Rts => az_rad
+                .par_iter()
+                .zip(za_rad.par_iter())
+                .map(|(&az, &za)| {
+                    self.calc_jones_inner(
+                        az,
+                        za,
+                        lambda_m,
+                        latitude_rad,
+                        s_lat,
+                        c_lat,
+                        &delays,
+                        &amps,
+                        norm_to_zenith,
+                        None,
+                    )
+                })
+                .collect(),
+            AnalyticType::Ska => az_rad
+                .par_iter()
+                .zip(za_rad.par_iter())
+                .map(|(&az, &za)| {
+                    self.calc_jones_inner(
+                        az,
+                        za,
+                        lambda_m,
+                        latitude_rad,
+                        s_lat,
+                        c_lat,
+                        &delays,
+                        &amps,
+                        norm_to_zenith,
+                        tile_index,
+                    )
+                })
+                .collect(),
+        };
         Ok(out)
     }
 
@@ -494,6 +588,7 @@ impl AnalyticBeam {
         latitude_rad: f64,
         norm_to_zenith: bool,
         results: &mut [Jones<f64>],
+        tile_index: Option<usize>,
     ) -> Result<(), AnalyticBeamError> {
         for &za in za_rad {
             if za > FRAC_PI_2 {
@@ -533,17 +628,33 @@ impl AnalyticBeam {
                     return Err(AnalyticBeamError::BelowHorizon { za });
                 }
 
-                let j = self.calc_jones_inner(
-                    az,
-                    za,
-                    lambda_m,
-                    latitude_rad,
-                    s_lat,
-                    c_lat,
-                    &delays,
-                    &amps,
-                    norm_to_zenith,
-                );
+                let j = match self.beam_type {
+                    AnalyticType::MwaPb | AnalyticType::Rts => self.calc_jones_inner(
+                        az,
+                        za,
+                        lambda_m,
+                        latitude_rad,
+                        s_lat,
+                        c_lat,
+                        &delays,
+                        &amps,
+                        norm_to_zenith,
+                        None,
+                    ),
+
+                    AnalyticType::Ska => self.calc_jones_inner(
+                        az,
+                        za,
+                        lambda_m,
+                        latitude_rad,
+                        s_lat,
+                        c_lat,
+                        &delays,
+                        &amps,
+                        norm_to_zenith,
+                        tile_index,
+                    ),
+                };
                 *result = j;
 
                 Ok(())
@@ -565,6 +676,7 @@ impl AnalyticBeam {
         delays: &[f64],
         amps: &[f64],
         norm_to_zenith: bool,
+        tile_index: Option<usize>,
     ) -> Jones<f64> {
         // The following logic could probably be significantly cleaned up, but
         // I'm out of time.
@@ -671,9 +783,131 @@ impl AnalyticBeam {
                 jones
             }
             AnalyticType::Ska => {
-                // New SKA logic in here
+                let ska_config = self
+                    .ska_config
+                    .clone()
+                    .expect("Somehow AnalyticType::Ska has ended up without needed SKA data!");
+
+                // latitude_rad should be lst_rad
+                let lst_rad = latitude_rad;
+
+                let index =
+                    tile_index.expect("Error! tile_index is needed for array factor beam forming");
+                // let index = tile_index.unwrap_or(0 as usize); // Uncomment this for debugging, lets
+                // program run all the way through
+
+                // Feed angles, euler angles, azimutal angles from x to y, N of E. Two elements [x, y]
+                let feed_angles_rad = &ska_config
+                    .feed_angles_rad
+                    .expect("Somehow ended up with no feed_angles_rad in Ska logic");
+                let phi_pq: &Vec<f64> = &feed_angles_rad[index];
+
+                // get element coordinates and transformation matrix for station 'index'
+                let feed_coordinates = &ska_config
+                    .feed_coordinates
+                    .expect("Somehow ended up without feed coordinates in Ska logic");
+                let coordinates: &Array2<f64> = &feed_coordinates[index];
+
+                let num_elems = coordinates.nrows();
+
+                // NOTE: Some hack fixes =====================================
+                // TODO: These were taken from LLMs, was really frustrated, just needed something.
+                // NEED TO CHECK LATER
+                let zenith_radec = RADec {
+                    ra: lst_rad,
+                    dec: SKA_SITE_LATITUDE_RAD,
+                };
+
+                let hadec =
+                    AzEl::from_radians(az_rad, FRAC_PI_2 - za_rad).to_hadec(SKA_SITE_LATITUDE_RAD);
+
+                let beam_radec = hadec.to_radec(lst_rad);
+
+                let beam_lmn = beam_radec.to_lmn(zenith_radec);
+                let cent_lmn = ska_config.phase_centre.to_lmn(zenith_radec);
+
+                let dl = beam_lmn.l - cent_lmn.l;
+                let dm = beam_lmn.m - cent_lmn.m;
+
+                // NOTE: End of hack fixes ====================================
+
+                // 1. Station rotation
+                // The station rotation information, when using the array factor method, is already
+                // implicitly included in the coordinates of the elements. We do not need to apply extra
+                // rotation for it.
+                // NOTE: The array factor is a *scalar* complex quantity, multiply this array factor by the
+                // element factor
+                // Notation is a bit confusing:
+                // 1. We form the array factor with (l, m) coordinates not (theta, phi)
+                // 2. station_beam_x_theta is the voltage pattern for the array of x-dipoles
+                //    It describes the array's whole x-dipole response to a signal coming from (l, m)
+                //    NOTE: But how does it know to describe the response to (x, y) or (theta, phi)
+                //    components of the electric field?
+                let mut array_factor = Complex::from(0.0);
+
+                for i in 0..num_elems {
+                    let x_loc = coordinates[[i, 0]];
+                    let y_loc = coordinates[[i, 1]];
+                    assert!(
+                        coordinates[[i, 2]].abs() < 1e-10,
+                        "z-coordinate of station coordinates is not close to 0: {:?}",
+                        coordinates[[i, 2]].abs()
+                    );
+
+                    // Add up phases
+                    // let tot_phase = (-x_loc / lambda_m * (beam_l - cent_l)
+                    //     + y_loc / lambda_m * (beam_m - cent_m));
+                    let tot_phase = (-x_loc * dl + y_loc * dm) / lambda_m;
+
+                    let angle = -2.0 * PI * tot_phase;
+                    array_factor += Complex::from_polar(1.0, angle);
+                }
+
+                // Normalise complex Array Factor
+                let af_norm = array_factor / num_elems as f64;
+
+                // 1.1 Embedded Element Pattern for crossed dipoles
+                // This is assuming the dipoles are aligned with the x and y axis. i.e. NO ROTATION!
+                let phi = FRAC_PI_2 - az_rad;
+                let theta = FRAC_PI_2 - za_rad;
+
+                // The phi angle is different for both p and q dipoles because q is rotated 90 degrees
+                // (usually). In Hyperdrive, use MWA-convention i.e. x/p dipole is aligned EW and q is
+                // aligned NS.
+                let phi_p = phi;
+                let phi_q = phi + PI / 2.0;
+
+                let denom_p = self.calc_half_wavelength_dipole_denom(theta, phi_p);
+                let denom_q = self.calc_half_wavelength_dipole_denom(theta, phi_q);
+
+                let kl: f64 = PI / 2.0; // By default OSKAR uses a dipole length of 0.5 wavelengths, so
+                                        // the expression for kL simplifies to pi/2.0
+
+                //let dipole_length = 0.5; // Default dipole length used in OSKAR
+                //let kl: f64 = dipole_length * PI * (freq_hz / SPEED_OF_LIGHT);
+                let numer_p = (kl * phi_p.cos() * theta.sin()).cos() - kl.cos();
+                let numer_q = (kl * (phi_q).cos() * theta.sin()).cos() - kl.cos();
+
+                let e_p_theta = (-phi_p.cos() * theta.cos() * numer_p) / denom_p * af_norm;
+                let e_p_phi = (phi_p.sin() * numer_p) / denom_p * af_norm;
+
+                let e_q_theta = (-(phi_q).cos() * theta.cos() * numer_q) / denom_q * af_norm;
+                let e_q_phi = ((phi_q).sin() * numer_q) / denom_q * af_norm;
+
+                // Steps outlined in hyperbeam fee_pols.pdf is specifically made for the FEE MWA beam.
+                // We do not use the FEE mwa beam here, so don't follow it.
+                // 1. Construct Jones matrix 'B'
+                let b = Jones::from([e_p_theta, e_p_phi, e_q_theta, e_q_phi]);
+
+                return b;
             }
         }
+    }
+
+    /// Calculate the denominator that is common to both E_phi and E_theta components, when using a
+    /// half-wavelength dipole (as OSKAR does)
+    fn calc_half_wavelength_dipole_denom(&self, theta: f64, phi: f64) -> f64 {
+        return 1.0 + phi.cos() * phi.cos() * (theta.cos() * theta.cos() - 1.0);
     }
 
     /// Prepare a compute-capable GPU device for beam-response computations
