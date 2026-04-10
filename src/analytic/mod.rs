@@ -24,10 +24,6 @@ use rayon::prelude::*;
 
 use crate::constants::{DELAY_STEP, MWA_DPL_SEP};
 use num_complex::Complex;
-// NOTE: Very hacky at the moment, this is needed because the SKA logic requires lst_rad, which
-// will be passed in via array_latitiude_rad. SKA logic does not use delays, if we had delays we
-// could change the logic to fit the MWA logic I think.
-const SKA_SITE_LATITUDE_RAD: f64 = 1.0;
 
 #[cfg(any(feature = "cuda", feature = "hip"))]
 use ndarray::prelude::*;
@@ -72,6 +68,8 @@ pub struct SkaConfig {
 
     /// Needed for SKA logic
     pub phase_centre: RADec,
+
+    pub site_latitude_rad: f64,
 }
 
 /// The main struct to be used for calculating analytic pointings.
@@ -750,13 +748,14 @@ impl AnalyticBeam {
                 // NOTE: Some hack fixes =====================================
                 // TODO: These were taken from LLMs, was really frustrated, just needed something.
                 // NEED TO CHECK LATER
+                let site_latitude_rad = ska_config.site_latitude_rad;
                 let zenith_radec = RADec {
                     ra: lst_rad,
-                    dec: SKA_SITE_LATITUDE_RAD,
+                    dec: site_latitude_rad,
                 };
 
                 let hadec =
-                    AzEl::from_radians(az_rad, FRAC_PI_2 - za_rad).to_hadec(SKA_SITE_LATITUDE_RAD);
+                    AzEl::from_radians(az_rad, FRAC_PI_2 - za_rad).to_hadec(site_latitude_rad);
 
                 let beam_radec = hadec.to_radec(lst_rad);
 
