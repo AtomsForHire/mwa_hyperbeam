@@ -133,7 +133,7 @@ impl AnalyticBeam {
         AnalyticBeam {
             dipole_height: beam_type.get_default_dipole_height(),
             beam_type,
-            bowties_per_row: 16,
+            bowties_per_row: 0,
             ska_config: Some(ska_config),
         }
     }
@@ -188,28 +188,16 @@ impl AnalyticBeam {
         norm_to_zenith: bool,
         tile_index: Option<usize>,
     ) -> Result<Jones<f64>, AnalyticBeamError> {
-        match self.beam_type {
-            AnalyticType::MwaPb | AnalyticType::Rts => self.calc_jones_pair(
-                azel.az,
-                azel.za(),
-                freq_hz,
-                delays,
-                amps,
-                latitude_rad,
-                norm_to_zenith,
-                None,
-            ),
-            AnalyticType::Ska => self.calc_jones_pair(
-                azel.az,
-                azel.za(),
-                freq_hz,
-                delays,
-                amps,
-                latitude_rad,
-                norm_to_zenith,
-                tile_index,
-            ),
-        }
+        self.calc_jones_pair(
+            azel.az,
+            azel.za(),
+            freq_hz,
+            delays,
+            amps,
+            latitude_rad,
+            norm_to_zenith,
+            tile_index,
+        )
     }
 
     /// Calculate the beam-response Jones matrix for a given direction and
@@ -277,32 +265,19 @@ impl AnalyticBeam {
 
         let lambda_m = VEL_C / freq_hz as f64;
         let (s_lat, c_lat) = latitude_rad.sin_cos();
-        let jones = match self.beam_type {
-            AnalyticType::MwaPb | AnalyticType::Rts => self.calc_jones_inner(
-                az_rad,
-                za_rad,
-                lambda_m,
-                latitude_rad,
-                s_lat,
-                c_lat,
-                &delays,
-                &amps,
-                norm_to_zenith,
-                None,
-            ),
-            AnalyticType::Ska => self.calc_jones_inner(
-                az_rad,
-                za_rad,
-                lambda_m,
-                latitude_rad,
-                s_lat,
-                c_lat,
-                &delays,
-                &amps,
-                norm_to_zenith,
-                tile_index,
-            ),
-        };
+        let jones = self.calc_jones_inner(
+            az_rad,
+            za_rad,
+            lambda_m,
+            latitude_rad,
+            s_lat,
+            c_lat,
+            &delays,
+            &amps,
+            norm_to_zenith,
+            tile_index,
+        );
+
         Ok(jones)
     }
 
@@ -336,28 +311,17 @@ impl AnalyticBeam {
         tile_index: Option<usize>,
     ) -> Result<Vec<Jones<f64>>, AnalyticBeamError> {
         let mut results = vec![Jones::default(); azels.len()];
-        match self.beam_type {
-            AnalyticType::MwaPb | AnalyticType::Rts => self.calc_jones_array_inner(
-                azels,
-                freq_hz,
-                delays,
-                amps,
-                latitude_rad,
-                norm_to_zenith,
-                &mut results,
-                None,
-            )?,
-            AnalyticType::Ska => self.calc_jones_array_inner(
-                azels,
-                freq_hz,
-                delays,
-                amps,
-                latitude_rad,
-                norm_to_zenith,
-                &mut results,
-                tile_index,
-            )?,
-        };
+        self.calc_jones_array_inner(
+            azels,
+            freq_hz,
+            delays,
+            amps,
+            latitude_rad,
+            norm_to_zenith,
+            &mut results,
+            tile_index,
+        )?;
+
         Ok(results)
     }
 
@@ -396,20 +360,29 @@ impl AnalyticBeam {
                 return Err(AnalyticBeamError::BelowHorizon { za });
             }
         }
-        let num_bowties = usize::from(self.bowties_per_row * self.bowties_per_row);
-        if delays.len() != num_bowties {
-            return Err(AnalyticBeamError::IncorrectDelaysLength {
-                got: delays.len(),
-                expected: num_bowties,
-            });
-        }
-        if amps.len() != num_bowties && amps.len() != num_bowties * 2 {
-            return Err(AnalyticBeamError::IncorrectAmpsLength {
-                got: amps.len(),
-                expected1: num_bowties,
-                expected2: num_bowties * 2,
-            });
-        }
+
+        match self.beam_type {
+            AnalyticType::MwaPb | AnalyticType::Rts => {
+                let num_bowties = usize::from(self.bowties_per_row * self.bowties_per_row);
+                if delays.len() != num_bowties {
+                    return Err(AnalyticBeamError::IncorrectDelaysLength {
+                        got: delays.len(),
+                        expected: num_bowties,
+                    });
+                }
+                if amps.len() != num_bowties && amps.len() != num_bowties * 2 {
+                    return Err(AnalyticBeamError::IncorrectAmpsLength {
+                        got: amps.len(),
+                        expected1: num_bowties,
+                        expected2: num_bowties * 2,
+                    });
+                }
+            }
+            AnalyticType::Ska => {
+                // Do nothing
+                ();
+            }
+        };
 
         let amps = fix_amps(amps, delays);
         let (amps, delays) = if matches!(self.beam_type, AnalyticType::Rts) {
@@ -428,32 +401,18 @@ impl AnalyticBeam {
                     return Err(AnalyticBeamError::BelowHorizon { za: azel.za() });
                 }
 
-                let j = match self.beam_type {
-                    AnalyticType::MwaPb | AnalyticType::Rts => self.calc_jones_inner(
-                        azel.az,
-                        azel.za(),
-                        lambda_m,
-                        latitude_rad,
-                        s_lat,
-                        c_lat,
-                        &delays,
-                        &amps,
-                        norm_to_zenith,
-                        None,
-                    ),
-                    AnalyticType::Ska => self.calc_jones_inner(
-                        azel.az,
-                        azel.za(),
-                        lambda_m,
-                        latitude_rad,
-                        s_lat,
-                        c_lat,
-                        &delays,
-                        &amps,
-                        norm_to_zenith,
-                        tile_index,
-                    ),
-                };
+                let j = self.calc_jones_inner(
+                    azel.az,
+                    azel.za(),
+                    lambda_m,
+                    latitude_rad,
+                    s_lat,
+                    c_lat,
+                    &delays,
+                    &amps,
+                    norm_to_zenith,
+                    tile_index,
+                );
 
                 *result = j;
 
@@ -496,19 +455,25 @@ impl AnalyticBeam {
                 return Err(AnalyticBeamError::BelowHorizon { za });
             }
         }
-        let num_bowties = usize::from(self.bowties_per_row * self.bowties_per_row);
-        if delays.len() != num_bowties {
-            return Err(AnalyticBeamError::IncorrectDelaysLength {
-                got: delays.len(),
-                expected: num_bowties,
-            });
-        }
-        if amps.len() != num_bowties && amps.len() != num_bowties * 2 {
-            return Err(AnalyticBeamError::IncorrectAmpsLength {
-                got: amps.len(),
-                expected1: num_bowties,
-                expected2: num_bowties * 2,
-            });
+
+        match self.beam_type {
+            AnalyticType::MwaPb | AnalyticType::Rts => {
+                let num_bowties = usize::from(self.bowties_per_row * self.bowties_per_row);
+                if delays.len() != num_bowties {
+                    return Err(AnalyticBeamError::IncorrectDelaysLength {
+                        got: delays.len(),
+                        expected: num_bowties,
+                    });
+                }
+                if amps.len() != num_bowties && amps.len() != num_bowties * 2 {
+                    return Err(AnalyticBeamError::IncorrectAmpsLength {
+                        got: amps.len(),
+                        expected1: num_bowties,
+                        expected2: num_bowties * 2,
+                    });
+                }
+            }
+            AnalyticType::Ska => (),
         }
 
         let amps = fix_amps(amps, delays);
@@ -520,44 +485,24 @@ impl AnalyticBeam {
 
         let lambda_m = VEL_C / freq_hz as f64;
         let (s_lat, c_lat) = latitude_rad.sin_cos();
-        let out = match self.beam_type {
-            AnalyticType::MwaPb | AnalyticType::Rts => az_rad
-                .par_iter()
-                .zip(za_rad.par_iter())
-                .map(|(&az, &za)| {
-                    self.calc_jones_inner(
-                        az,
-                        za,
-                        lambda_m,
-                        latitude_rad,
-                        s_lat,
-                        c_lat,
-                        &delays,
-                        &amps,
-                        norm_to_zenith,
-                        None,
-                    )
-                })
-                .collect(),
-            AnalyticType::Ska => az_rad
-                .par_iter()
-                .zip(za_rad.par_iter())
-                .map(|(&az, &za)| {
-                    self.calc_jones_inner(
-                        az,
-                        za,
-                        lambda_m,
-                        latitude_rad,
-                        s_lat,
-                        c_lat,
-                        &delays,
-                        &amps,
-                        norm_to_zenith,
-                        tile_index,
-                    )
-                })
-                .collect(),
-        };
+        let out = az_rad
+            .par_iter()
+            .zip(za_rad.par_iter())
+            .map(|(&az, &za)| {
+                self.calc_jones_inner(
+                    az,
+                    za,
+                    lambda_m,
+                    latitude_rad,
+                    s_lat,
+                    c_lat,
+                    &delays,
+                    &amps,
+                    norm_to_zenith,
+                    tile_index,
+                )
+            })
+            .collect();
         Ok(out)
     }
 
@@ -596,19 +541,25 @@ impl AnalyticBeam {
             }
         }
         let num_bowties = usize::from(self.bowties_per_row * self.bowties_per_row);
-        if delays.len() != num_bowties {
-            return Err(AnalyticBeamError::IncorrectDelaysLength {
-                got: delays.len(),
-                expected: num_bowties,
-            });
-        }
-        if amps.len() != num_bowties && amps.len() != num_bowties * 2 {
-            return Err(AnalyticBeamError::IncorrectAmpsLength {
-                got: amps.len(),
-                expected1: num_bowties,
-                expected2: num_bowties * 2,
-            });
-        }
+
+        match self.beam_type {
+            AnalyticType::MwaPb | AnalyticType::Rts => {
+                if delays.len() != num_bowties {
+                    return Err(AnalyticBeamError::IncorrectDelaysLength {
+                        got: delays.len(),
+                        expected: num_bowties,
+                    });
+                }
+                if amps.len() != num_bowties && amps.len() != num_bowties * 2 {
+                    return Err(AnalyticBeamError::IncorrectAmpsLength {
+                        got: amps.len(),
+                        expected1: num_bowties,
+                        expected2: num_bowties * 2,
+                    });
+                }
+            }
+            AnalyticType::Ska => (),
+        };
 
         let amps = fix_amps(amps, delays);
         let (amps, delays) = if matches!(self.beam_type, AnalyticType::Rts) {
@@ -628,33 +579,19 @@ impl AnalyticBeam {
                     return Err(AnalyticBeamError::BelowHorizon { za });
                 }
 
-                let j = match self.beam_type {
-                    AnalyticType::MwaPb | AnalyticType::Rts => self.calc_jones_inner(
-                        az,
-                        za,
-                        lambda_m,
-                        latitude_rad,
-                        s_lat,
-                        c_lat,
-                        &delays,
-                        &amps,
-                        norm_to_zenith,
-                        None,
-                    ),
+                let j = self.calc_jones_inner(
+                    az,
+                    za,
+                    lambda_m,
+                    latitude_rad,
+                    s_lat,
+                    c_lat,
+                    &delays,
+                    &amps,
+                    norm_to_zenith,
+                    tile_index,
+                );
 
-                    AnalyticType::Ska => self.calc_jones_inner(
-                        az,
-                        za,
-                        lambda_m,
-                        latitude_rad,
-                        s_lat,
-                        c_lat,
-                        &delays,
-                        &amps,
-                        norm_to_zenith,
-                        tile_index,
-                    ),
-                };
                 *result = j;
 
                 Ok(())
@@ -850,7 +787,9 @@ impl AnalyticBeam {
                     let y_loc = coordinates[[i, 1]];
                     assert!(
                         coordinates[[i, 2]].abs() < 1e-10,
-                        "z-coordinate of station coordinates is not close to 0: {:?}",
+                        "z-coordinate of station coordinates is not close to 0: {:?}, {:?}, {:?}",
+                        coordinates[[i, 0]].abs(),
+                        coordinates[[i, 1]].abs(),
                         coordinates[[i, 2]].abs()
                     );
 
