@@ -807,7 +807,8 @@ impl AnalyticBeam {
                 // 1.1 Embedded Element Pattern for crossed dipoles
                 // This is assuming the dipoles are aligned with the x and y axis. i.e. NO ROTATION!
                 let phi = FRAC_PI_2 - az_rad;
-                let theta = FRAC_PI_2 - za_rad;
+                // let theta = FRAC_PI_2 - za_rad;
+                let theta = za_rad;
 
                 // The phi angle is different for both p and q dipoles because q is rotated 90 degrees
                 // (usually). In Hyperdrive, use MWA-convention i.e. x/p dipole is aligned EW and q is
