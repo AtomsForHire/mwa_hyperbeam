@@ -154,6 +154,7 @@ pub unsafe extern "C" fn analytic_calc_jones(
         amps_s,
         latitude_rad,
         norm_bool,
+        None,
     ) {
         Ok(j) => {
             let jones_buf = slice::from_raw_parts_mut(jones, 8);
@@ -251,7 +252,8 @@ pub unsafe extern "C" fn analytic_calc_jones_array(
         amps_s,
         latitude_rad,
         norm_bool,
-        results_s
+        results_s,
+        None,
     ));
     0
 }
