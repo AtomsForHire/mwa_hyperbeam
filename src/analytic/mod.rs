@@ -39,6 +39,9 @@ pub enum AnalyticType {
 
     /// SKA-Low array factor beam
     Ska,
+
+    ///
+    SkaMean,
 }
 
 impl AnalyticType {
@@ -50,6 +53,7 @@ impl AnalyticType {
             AnalyticType::MwaPb => 0.278,
             AnalyticType::Rts => 0.30,
             AnalyticType::Ska => 0.00, // Array factor does not need height
+            AnalyticType::SkaMean => 0.00, // Array factor does not need height
         }
     }
 }
@@ -258,7 +262,8 @@ impl AnalyticBeam {
             AnalyticType::Rts => reorder_to_rts(&amps, delays),
             AnalyticType::MwaPb => (amps.to_vec(), delay_ints_to_floats(delays)),
             AnalyticType::Ska => (vec![], vec![]), // Don't need amps or delays for SKA array
-                                                   // factor logic
+            // factor logic
+            AnalyticType::SkaMean => (vec![], vec![]),
         };
 
         let lambda_m = VEL_C / freq_hz as f64;
@@ -380,6 +385,10 @@ impl AnalyticBeam {
                 // Do nothing
                 ();
             }
+            AnalyticType::SkaMean => {
+                // Do nothing
+                ();
+            }
         };
 
         let amps = fix_amps(amps, delays);
@@ -472,6 +481,7 @@ impl AnalyticBeam {
                 }
             }
             AnalyticType::Ska => (),
+            AnalyticType::SkaMean => (),
         }
 
         let amps = fix_amps(amps, delays);
@@ -557,6 +567,7 @@ impl AnalyticBeam {
                 }
             }
             AnalyticType::Ska => (),
+            AnalyticType::SkaMean => (),
         };
 
         let amps = fix_amps(amps, delays);
@@ -644,6 +655,9 @@ impl AnalyticBeam {
                     AnalyticType::Ska => {
                         unreachable!("This should be unreachable");
                     }
+                    AnalyticType::SkaMean => {
+                        unreachable!("This should be unreachable");
+                    }
                 };
 
                 let proj_e = s_za * s_az;
@@ -671,6 +685,9 @@ impl AnalyticBeam {
                         AnalyticType::Ska => {
                             unreachable!("This should be unreachable");
                         }
+                        AnalyticType::SkaMean => {
+                            unreachable!("This should be unreachable");
+                        }
                     };
                     // let dip_z = 0.0;
 
@@ -690,6 +707,9 @@ impl AnalyticBeam {
                          - delay)
                         }
                         AnalyticType::Ska => {
+                            unreachable!("This should be unreachable");
+                        }
+                        AnalyticType::SkaMean => {
                             unreachable!("This should be unreachable");
                         }
                     };
@@ -832,6 +852,104 @@ impl AnalyticBeam {
 
                 let e_q_theta = (-(phi_q).cos() * theta.cos() * numer_q) / denom_q * af_norm;
                 let e_q_phi = ((phi_q).sin() * numer_q) / denom_q * af_norm;
+
+                // Steps outlined in hyperbeam fee_pols.pdf is specifically made for the FEE MWA beam.
+                // We do not use the FEE mwa beam here, so don't follow it.
+                // 1. Construct Jones matrix 'B'
+                let b = Jones::from([e_p_theta, e_p_phi, e_q_theta, e_q_phi]);
+
+                return b;
+            }
+            AnalyticType::SkaMean => {
+                let ska_config = self
+                    .ska_config
+                    .clone()
+                    .expect("Somehow AnalyticType::Ska has ended up without needed SKA data!");
+
+                let lst_rad = latitude_rad;
+
+                let index =
+                    tile_index.expect("Error! tile_index is needed for array factor beam forming");
+
+                let feed_angles_rad = &ska_config
+                    .feed_angles_rad
+                    .expect("Somehow ended up with no feed_angles_rad in Ska logic");
+                let phi_pq: &Vec<f64> = &feed_angles_rad[index];
+
+                let feed_coordinates = &ska_config
+                    .feed_coordinates
+                    .expect("Somehow ended up without feed coordinates in Ska logic");
+                let coordinates: &Array2<f64> = &feed_coordinates[index];
+
+                let num_elems = coordinates.nrows();
+
+                let site_latitude_rad = ska_config.site_latitude_rad;
+                let zenith_radec = RADec {
+                    ra: lst_rad,
+                    dec: site_latitude_rad,
+                };
+
+                let hadec =
+                    AzEl::from_radians(az_rad, FRAC_PI_2 - za_rad).to_hadec(site_latitude_rad);
+
+                let beam_radec = hadec.to_radec(lst_rad);
+
+                let beam_lmn = beam_radec.to_lmn(zenith_radec);
+                let cent_lmn = ska_config.phase_centre.to_lmn(zenith_radec);
+
+                let dl = beam_lmn.l - cent_lmn.l;
+                let dm = beam_lmn.m - cent_lmn.m;
+
+                let mut array_factor_mean = Complex::from(0.0);
+                let num_stations = ska_config.number_of_stations;
+
+                for j in 0..num_stations {
+                    let mut array_factor_station = Complex::from(0.0);
+                    for i in 0..num_elems {
+                        let x_loc = coordinates[[i, 0]];
+                        let y_loc = coordinates[[i, 1]];
+                        assert!(
+                        coordinates[[i, 2]].abs() < 1e-10,
+                        "z-coordinate of station coordinates is not close to 0: {:?}, {:?}, {:?}",
+                        coordinates[[i, 0]].abs(),
+                        coordinates[[i, 1]].abs(),
+                        coordinates[[i, 2]].abs()
+                    );
+
+                        let tot_phase = (-x_loc * dl + y_loc * dm) / lambda_m;
+
+                        let angle = -2.0 * PI * tot_phase;
+                        array_factor_station += Complex::from_polar(1.0, angle);
+                    }
+
+                    let af_norm = array_factor_station / num_elems as f64;
+
+                    array_factor_mean += array_factor_station;
+                }
+
+                array_factor_mean /= num_stations as f64;
+
+                let phi = FRAC_PI_2 - az_rad;
+                let theta = za_rad;
+
+                let phi_p = phi;
+                let phi_q = phi + PI / 2.0;
+
+                let denom_p = self.calc_half_wavelength_dipole_denom(theta, phi_p);
+                let denom_q = self.calc_half_wavelength_dipole_denom(theta, phi_q);
+
+                let kl: f64 = PI / 2.0;
+
+                let numer_p = (kl * phi_p.cos() * theta.sin()).cos() - kl.cos();
+                let numer_q = (kl * (phi_q).cos() * theta.sin()).cos() - kl.cos();
+
+                let e_p_theta =
+                    (-phi_p.cos() * theta.cos() * numer_p) / denom_p * array_factor_mean;
+                let e_p_phi = (phi_p.sin() * numer_p) / denom_p * array_factor_mean;
+
+                let e_q_theta =
+                    (-(phi_q).cos() * theta.cos() * numer_q) / denom_q * array_factor_mean;
+                let e_q_phi = ((phi_q).sin() * numer_q) / denom_q * array_factor_mean;
 
                 // Steps outlined in hyperbeam fee_pols.pdf is specifically made for the FEE MWA beam.
                 // We do not use the FEE mwa beam here, so don't follow it.
