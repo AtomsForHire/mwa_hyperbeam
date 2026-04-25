@@ -827,7 +827,6 @@ impl AnalyticBeam {
                 // 1.1 Embedded Element Pattern for crossed dipoles
                 // This is assuming the dipoles are aligned with the x and y axis. i.e. NO ROTATION!
                 let phi = FRAC_PI_2 - az_rad;
-                // let theta = FRAC_PI_2 - za_rad;
                 let theta = za_rad;
 
                 // The phi angle is different for both p and q dipoles because q is rotated 90 degrees
@@ -879,7 +878,6 @@ impl AnalyticBeam {
                 let feed_coordinates = &ska_config
                     .feed_coordinates
                     .expect("Somehow ended up without feed coordinates in Ska logic");
-                let coordinates: &Array2<f64> = &feed_coordinates[index];
 
                 let num_elems = coordinates.nrows();
 
@@ -905,6 +903,7 @@ impl AnalyticBeam {
 
                 for j in 0..num_stations {
                     let mut array_factor_station = Complex::from(0.0);
+                    let coordinates: &Array2<f64> = &feed_coordinates[j];
                     for i in 0..num_elems {
                         let x_loc = coordinates[[i, 0]];
                         let y_loc = coordinates[[i, 1]];
