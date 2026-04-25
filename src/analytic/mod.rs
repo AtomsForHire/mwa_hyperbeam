@@ -879,8 +879,6 @@ impl AnalyticBeam {
                     .feed_coordinates
                     .expect("Somehow ended up without feed coordinates in Ska logic");
 
-                let num_elems = coordinates.nrows();
-
                 let site_latitude_rad = ska_config.site_latitude_rad;
                 let zenith_radec = RADec {
                     ra: lst_rad,
@@ -904,6 +902,7 @@ impl AnalyticBeam {
                 for j in 0..num_stations {
                     let mut array_factor_station = Complex::from(0.0);
                     let coordinates: &Array2<f64> = &feed_coordinates[j];
+                    let num_elems = coordinates.nrows();
                     for i in 0..num_elems {
                         let x_loc = coordinates[[i, 0]];
                         let y_loc = coordinates[[i, 1]];
