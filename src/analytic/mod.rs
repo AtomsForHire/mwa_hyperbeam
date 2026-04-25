@@ -921,8 +921,6 @@ impl AnalyticBeam {
                         array_factor_station += Complex::from_polar(1.0, angle);
                     }
 
-                    let af_norm = array_factor_station / num_elems as f64;
-
                     array_factor_mean += array_factor_station;
                 }
 
