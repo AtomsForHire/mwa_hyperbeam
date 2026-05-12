@@ -801,16 +801,14 @@ impl AnalyticBeam {
                 //    components of the electric field?
                 let mut array_factor = Complex::from(0.0);
 
+                assert!(
+                    coordinates.column(2).iter().all(|z| z.abs() < 1e-10),
+                    "One or more z-coordinates are not equal to 0"
+                );
+
                 for i in 0..num_elems {
                     let x_loc = coordinates[[i, 0]];
                     let y_loc = coordinates[[i, 1]];
-                    assert!(
-                        coordinates[[i, 2]].abs() < 1e-10,
-                        "z-coordinate of station coordinates is not close to 0: {:?}, {:?}, {:?}",
-                        coordinates[[i, 0]].abs(),
-                        coordinates[[i, 1]].abs(),
-                        coordinates[[i, 2]].abs()
-                    );
 
                     // Add up phases
                     // let tot_phase = (-x_loc / lambda_m * (beam_l - cent_l)
