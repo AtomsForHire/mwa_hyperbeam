@@ -801,7 +801,7 @@ impl AnalyticBeam {
                 //    components of the electric field?
                 let mut array_factor = Complex::from(0.0);
 
-                assert!(
+                debug_assert!(
                     coordinates.column(2).iter().all(|z| z.abs() < 1e-10),
                     "One or more z-coordinates are not equal to 0"
                 );
