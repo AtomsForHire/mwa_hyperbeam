@@ -806,18 +806,23 @@ impl AnalyticBeam {
                     "One or more z-coordinates are not equal to 0"
                 );
 
-                for i in 0..num_elems {
-                    let x_loc = coordinates[[i, 0]];
-                    let y_loc = coordinates[[i, 1]];
+                // for i in 0..num_elems {
+                array_factor = (0..num_elems)
+                    .into_par_iter()
+                    .map(|i| {
+                        let x_loc = coordinates[[i, 0]];
+                        let y_loc = coordinates[[i, 1]];
 
-                    // Add up phases
-                    // let tot_phase = (-x_loc / lambda_m * (beam_l - cent_l)
-                    //     + y_loc / lambda_m * (beam_m - cent_m));
-                    let tot_phase = (-x_loc * dl + y_loc * dm) / lambda_m;
+                        // Add up phases
+                        // let tot_phase = (-x_loc / lambda_m * (beam_l - cent_l)
+                        //     + y_loc / lambda_m * (beam_m - cent_m));
+                        let tot_phase = (-x_loc * dl + y_loc * dm) / lambda_m;
 
-                    let angle = -2.0 * PI * tot_phase;
-                    array_factor += Complex::from_polar(1.0, angle);
-                }
+                        let angle = -2.0 * PI * tot_phase;
+                        // array_factor += Complex::from_polar(1.0, angle);
+                        Complex::from_polar(1.0, angle)
+                    })
+                    .sum();
 
                 // Normalise complex Array Factor
                 let af_norm = array_factor / num_elems as f64;
