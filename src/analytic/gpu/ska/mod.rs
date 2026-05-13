@@ -36,3 +36,17 @@ impl SkaInner {
         })
     }
 }
+
+impl super::CalcJones for SkaInner {
+    fn calc_jones_pair_inner(
+        &self,
+        az_rad: &[GpuFloat],
+        za_rad: &[GpuFloat],
+        freqs_hz: &[u32],
+        latitude_rad: GpuFloat,
+        norm_to_zenith: bool,
+        mut results: ArrayViewMut3<marlu::Jones<GpuFloat>>,
+    ) -> Result<(), AnalyticBeamError> {
+        todo!();
+    }
+}

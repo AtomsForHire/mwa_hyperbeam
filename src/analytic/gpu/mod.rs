@@ -38,8 +38,17 @@ use crate::{
     gpu::{DevicePointer, GpuError, GpuFloat},
 };
 
-trait CalcJones{
-    fn calc_jones_pair_inner(&self) -> Result<(), AnalyticBeamError>;
+/// A trait to be used in the mwa_rts and ska submodules. The original calc_jones_pair_inner
+trait CalcJones {
+    fn calc_jones_pair_inner(
+        &self,
+        az_rad: &[GpuFloat],
+        za_rad: &[GpuFloat],
+        freqs_hz: &[u32],
+        latitude_rad: GpuFloat,
+        norm_to_zenith: bool,
+        mut results: ArrayViewMut3<Jones<GpuFloat>>,
+    ) -> Result<(), AnalyticBeamError>;
 }
 
 enum AnalyticTypeInner {
@@ -49,26 +58,9 @@ enum AnalyticTypeInner {
 
 /// A GPU beam object ready to calculate beam responses.
 pub struct AnalyticBeamGpu {
-    // analytic_type: super::AnalyticType,
     /// This is now an enum variant, which holds relevant information for MWA/SKA calculations
     /// Allows us to split MWA/SKA into their own submodules.
     pub(super) analytic_type: AnalyticTypeInner,
-
-    // dipole_height: GpuFloat,
-    // bowties_per_row: u8,
-    
-    // d_delays: DevicePointer<GpuFloat>,
-    // d_amps: DevicePointer<GpuFloat>,
-
-    /// The number of unique tiles according to the delays and amps.
-    // pub(super) num_unique_tiles: i32,
-
-    /// This is used to access de-duplicated Jones matrices.
-    // tile_map: Vec<i32>,
-    
-    // /// The device pointer to the `tile_map` (same as the host's memory
-    // /// equivalent above).
-    // d_tile_map: DevicePointer<i32>,
 }
 
 impl AnalyticBeamGpu {
@@ -83,16 +75,17 @@ impl AnalyticBeamGpu {
         delays_array: ArrayView2<u32>,
         amps_array: ArrayView2<f64>,
     ) -> Result<AnalyticBeamGpu, AnalyticBeamError> {
-        let analytic_type = match analytic_beam.beam_type {
-            AnalyticType::MwaPb | AnalyticType::Rts => AnalyticTypeInner::MwaRts(MwaRtsInner::new(
-                analytic_beam,
-                delays_array,
-                amps_array,
-            )?),
-            AnalyticType::Ska | AnalyticType::SkaMean => { AnalyticTypeInner::Ska(SkaInner::new(analytic_beam)?) },
-        };
+        let analytic_type =
+            match analytic_beam.beam_type {
+                AnalyticType::MwaPb | AnalyticType::Rts => AnalyticTypeInner::MwaRts(
+                    MwaRtsInner::new(analytic_beam, delays_array, amps_array)?,
+                ),
+                AnalyticType::Ska | AnalyticType::SkaMean => {
+                    AnalyticTypeInner::Ska(SkaInner::new(analytic_beam)?)
+                }
+            };
 
-        Ok (AnalyticBeamGpu { analytic_type: analytic_type })
+        Ok(AnalyticBeamGpu { analytic_type })
     }
 
     /// Given directions, calculate beam-response Jones matrices on the device
@@ -136,111 +129,6 @@ impl AnalyticBeamGpu {
                 d_results.get_mut() as *mut std::ffi::c_void,
             )?;
             Ok(d_results)
-        }
-    }
-
-    /// Given directions, calculate beam-response Jones matrices on the device
-    /// and return a pointer to them.
-    pub fn calc_jones_device_pair(
-        &self,
-        az_rad: &[GpuFloat],
-        za_rad: &[GpuFloat],
-        freqs_hz: &[u32],
-        latitude_rad: GpuFloat,
-        norm_to_zenith: bool,
-    ) -> Result<DevicePointer<Jones<GpuFloat>>, AnalyticBeamError> {
-        unsafe {
-            // Allocate a buffer on the device for results.
-            let d_results = DevicePointer::malloc(
-                self.num_unique_tiles as usize
-                    * freqs_hz.len()
-                    * az_rad.len()
-                    * std::mem::size_of::<Jones<GpuFloat>>(),
-            )?;
-
-            // Also copy the directions to the device.
-            let d_azs = DevicePointer::copy_to_device(az_rad)?;
-            let d_zas = DevicePointer::copy_to_device(za_rad)?;
-            let d_freqs = DevicePointer::copy_to_device(freqs_hz)?;
-
-            self.calc_jones_device_pair_inner(
-                d_azs.get(),
-                d_zas.get(),
-                az_rad.len().try_into().expect("much fewer than i32::MAX"),
-                d_freqs.get(),
-                freqs_hz.len().try_into().expect("much fewer than i32::MAX"),
-                latitude_rad,
-                norm_to_zenith,
-                d_results.get_mut() as *mut std::ffi::c_void,
-            )?;
-            Ok(d_results)
-        }
-    }
-
-    /// Given directions, calculate beam-response Jones matrices
-    /// into the supplied pre-allocated device pointer. This buffer
-    /// should have a shape of (`num_unique_tiles`, `num_freqs`,
-    /// `az_rad_length`). The number of unique tiles can be accessed with
-    /// [`AnalyticBeamGpu::get_num_unique_tiles`]. `d_latitude_rad` is
-    /// populated with the array latitude, if the caller wants the parallactic-
-    /// angle correction to be applied. If the pointer is null, then no
-    /// correction is applied.
-    ///
-    /// # Safety
-    ///
-    /// If `d_results` is too small (correct size described above), then
-    /// undefined behaviour looms.
-    #[allow(clippy::too_many_arguments)]
-    pub unsafe fn calc_jones_device_pair_inner(
-        &self,
-        d_az_rad: *const GpuFloat,
-        d_za_rad: *const GpuFloat,
-        num_directions: i32,
-        d_freqs_hz: *const u32,
-        num_freqs: i32,
-        latitude_rad: GpuFloat,
-        norm_to_zenith: bool,
-        d_results: *mut std::ffi::c_void,
-    ) -> Result<(), AnalyticBeamError> {
-        // Don't do anything if there aren't any directions.
-        if num_directions == 0 {
-            return Ok(());
-        }
-
-        // The return value is a pointer to a CUDA/HIP error string. If it's
-        // null then everything is fine.
-        let error_message_ptr = gpu_analytic_calc_jones(
-            match self.analytic_type {
-                super::AnalyticType::MwaPb => ANALYTIC_TYPE_MWA_PB,
-                super::AnalyticType::Rts => ANALYTIC_TYPE_RTS,
-            },
-            self.dipole_height,
-            d_az_rad,
-            d_za_rad,
-            num_directions,
-            d_freqs_hz,
-            num_freqs,
-            self.d_delays.get(),
-            self.d_amps.get(),
-            self.num_unique_tiles,
-            latitude_rad,
-            norm_to_zenith as _,
-            self.bowties_per_row,
-            d_results,
-        );
-        if error_message_ptr.is_null() {
-            Ok(())
-        } else {
-            let error_message = CStr::from_ptr(error_message_ptr)
-                .to_str()
-                .unwrap_or("<cannot read GPU error string>");
-            let our_error_str =
-                format!("analytic.h:analytic_calc_jones_gpu failed with: {error_message}");
-            Err(AnalyticBeamError::Gpu(GpuError::Kernel {
-                msg: our_error_str.into(),
-                file: file!(),
-                line: line!(),
-            }))
         }
     }
 
@@ -325,31 +213,43 @@ impl AnalyticBeamGpu {
         norm_to_zenith: bool,
         mut results: ArrayViewMut3<Jones<GpuFloat>>,
     ) -> Result<(), AnalyticBeamError> {
-        // Allocate an array matching the deduplicated device memory.
-        let mut dedup_results: Array3<Jones<GpuFloat>> = Array3::from_elem(
-            (self.num_unique_tiles as usize, freqs_hz.len(), az_rad.len()),
-            Jones::default(),
-        );
-        // Calculate the beam responses. and copy them to the host.
-        let device_ptr =
-            self.calc_jones_device_pair(az_rad, za_rad, freqs_hz, latitude_rad, norm_to_zenith)?;
-        unsafe {
-            device_ptr.copy_from_device(dedup_results.as_slice_mut().expect("is contiguous"))?;
+        match self.analytic_type {
+            AnalyticTypeInner::MwaRts(inner) => inner.calc_jones_pair_inner(
+                az_rad,
+                za_rad,
+                freqs_hz,
+                latitude_rad,
+                norm_to_zenith,
+                results,
+            ),
+            AnalyticTypeInner::Ska(inner) => todo!(),
         }
-        // Free the device memory.
-        drop(device_ptr);
-
-        // Expand the results according to the map.
-        results
-            .outer_iter_mut()
-            .zip(self.tile_map.iter())
-            .for_each(|(mut jones_row, &i_row)| {
-                let i_row: usize = i_row.try_into().expect("is a positive int");
-                jones_row.assign(&dedup_results.slice(s![i_row, .., ..]));
-            });
-        Ok(())
+        // // Allocate an array matching the deduplicated device memory.
+        // let mut dedup_results: Array3<Jones<GpuFloat>> = Array3::from_elem(
+        //     (self.num_unique_tiles as usize, freqs_hz.len(), az_rad.len()),
+        //     Jones::default(),
+        // );
+        // // Calculate the beam responses. and copy them to the host.
+        // let device_ptr =
+        //     self.calc_jones_device_pair(az_rad, za_rad, freqs_hz, latitude_rad, norm_to_zenith)?;
+        // unsafe {
+        //     device_ptr.copy_from_device(dedup_results.as_slice_mut().expect("is contiguous"))?;
+        // }
+        // // Free the device memory.
+        // drop(device_ptr);
+        //
+        // // Expand the results according to the map.
+        // results
+        //     .outer_iter_mut()
+        //     .zip(self.tile_map.iter())
+        //     .for_each(|(mut jones_row, &i_row)| {
+        //         let i_row: usize = i_row.try_into().expect("is a positive int");
+        //         jones_row.assign(&dedup_results.slice(s![i_row, .., ..]));
+        //     });
+        // Ok(())
     }
 
+    // TODO: Update these functions below
     /// Get the number of tiles that this [`AnalyticBeamGpu`] applies to.
     pub fn get_total_num_tiles(&self) -> usize {
         self.tile_map.len()
