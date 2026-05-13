@@ -220,55 +220,44 @@ impl AnalyticBeamGpu {
             ),
             AnalyticTypeInner::Ska(inner) => todo!(),
         }
-        // // Allocate an array matching the deduplicated device memory.
-        // let mut dedup_results: Array3<Jones<GpuFloat>> = Array3::from_elem(
-        //     (self.num_unique_tiles as usize, freqs_hz.len(), az_rad.len()),
-        //     Jones::default(),
-        // );
-        // // Calculate the beam responses. and copy them to the host.
-        // let device_ptr =
-        //     self.calc_jones_device_pair(az_rad, za_rad, freqs_hz, latitude_rad, norm_to_zenith)?;
-        // unsafe {
-        //     device_ptr.copy_from_device(dedup_results.as_slice_mut().expect("is contiguous"))?;
-        // }
-        // // Free the device memory.
-        // drop(device_ptr);
-        //
-        // // Expand the results according to the map.
-        // results
-        //     .outer_iter_mut()
-        //     .zip(self.tile_map.iter())
-        //     .for_each(|(mut jones_row, &i_row)| {
-        //         let i_row: usize = i_row.try_into().expect("is a positive int");
-        //         jones_row.assign(&dedup_results.slice(s![i_row, .., ..]));
-        //     });
-        // Ok(())
+    }
+
+    /// Get the number of tiles that this [`AnalyticBeamGpu`] applies to.
+    pub fn get_total_num_tiles(&self) -> usize {
+        match self.analytic_type {
+            AnalyticTypeInner::MwaRts(inner) => inner.tile_map.len(),
+            AnalyticTypeInner::Ska(inner) => inner.num_stations as usize,
+        }
     }
 
     // TODO: Update these functions below
-    /// Get the number of tiles that this [`AnalyticBeamGpu`] applies to.
-    pub fn get_total_num_tiles(&self) -> usize {
-        self.tile_map.len()
-    }
-
     /// Get a pointer to the tile map associated with this
     /// [`AnalyticBeamGpu`]. This is necessary to access de-duplicated beam
     /// Jones matrices.
     pub fn get_tile_map(&self) -> *const i32 {
-        self.tile_map.as_ptr()
+        match self.analytic_type {
+            AnalyticTypeInner::MwaRts(inner) => inner.tile_map.as_ptr(),
+            AnalyticTypeInner::Ska(inner) => todo!(),
+        }
     }
 
     /// Get a pointer to the device tile map associated with this
     /// [`AnalyticBeamGpu`]. This is necessary to access de-duplicated beam
     /// Jones matrices on the device.
     pub fn get_device_tile_map(&self) -> *const i32 {
-        self.d_tile_map.get()
+        match self.analytic_type {
+            AnalyticTypeInner::MwaRts(inner) => inner.d_tile_map.get(),
+            AnalyticTypeInner::Ska(inner) => todo!(),
+        }
     }
 
     /// Get the number of de-duplicated tiles associated with this
     /// [`AnalyticBeamGpu`].
     pub fn get_num_unique_tiles(&self) -> i32 {
-        self.num_unique_tiles
+        match self.analytic_type {
+            AnalyticTypeInner::MwaRts(inner) => inner.num_unique_tiles,
+            AnalyticTypeInner::Ska(inner) => todo!(),
+        }
     }
 }
 
