@@ -237,4 +237,48 @@ impl super::CalcJones for MwaRtsInner {
             });
         Ok(())
     }
+
+    /// Given directions, calculate beam-response Jones matrices on the device
+    /// and return a pointer to them.
+    ///
+    /// Note that this function needs to allocate two vectors for azimuths and
+    /// zenith angles from the supplied `azels`.
+    fn calc_jones_device(
+        &self,
+        azels: &[AzEl],
+        freqs_hz: &[u32],
+        latitude_rad: f64,
+        norm_to_zenith: bool,
+    ) -> Result<DevicePointer<Jones<GpuFloat>>, AnalyticBeamError> {
+        unsafe {
+            // Allocate a buffer on the device for results.
+            let d_results = DevicePointer::malloc(
+                self.num_unique_tiles as usize
+                    * freqs_hz.len()
+                    * azels.len()
+                    * std::mem::size_of::<Jones<GpuFloat>>(),
+            )?;
+
+            // Also copy the directions to the device.
+            let (azs, zas): (Vec<GpuFloat>, Vec<GpuFloat>) = azels
+                .iter()
+                .map(|&azel| (azel.az as GpuFloat, azel.za() as GpuFloat))
+                .unzip();
+            let d_azs = DevicePointer::copy_to_device(&azs)?;
+            let d_zas = DevicePointer::copy_to_device(&zas)?;
+            let d_freqs = DevicePointer::copy_to_device(freqs_hz)?;
+
+            self.calc_jones_device_pair_inner(
+                d_azs.get(),
+                d_zas.get(),
+                azels.len().try_into().expect("much fewer than i32::MAX"),
+                d_freqs.get(),
+                freqs_hz.len().try_into().expect("much fewer than i32::MAX"),
+                latitude_rad as GpuFloat,
+                norm_to_zenith,
+                d_results.get_mut() as *mut std::ffi::c_void,
+            )?;
+            Ok(d_results)
+        }
+    }
 }

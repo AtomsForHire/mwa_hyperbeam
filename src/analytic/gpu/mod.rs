@@ -40,6 +40,8 @@ use crate::{
 
 /// A trait to be used in the mwa_rts and ska submodules. The original calc_jones_pair_inner
 trait CalcJones {
+    /// Originally, this was the host side function to handle de-duplication and copying arrays to
+    /// device. With the introduction of SKA logic, this function will handle SKA differently.
     fn calc_jones_pair_inner(
         &self,
         az_rad: &[GpuFloat],
@@ -49,6 +51,17 @@ trait CalcJones {
         norm_to_zenith: bool,
         mut results: ArrayViewMut3<Jones<GpuFloat>>,
     ) -> Result<(), AnalyticBeamError>;
+
+    /// Originally a top level function akin to `calc_jones` and `calc_jones_pair`, but needs to be
+    /// a trait because it calls `calc_jones_device_pair_inner` which for MWA has moved to the
+    /// mwa_rts submodule.
+    fn calc_jones_device(
+        &self,
+        azels: &[AzEl],
+        freqs_hz: &[u32],
+        latitude_rad: f64,
+        norm_to_zenith: bool,
+    ) -> Result<DevicePointer<Jones<GpuFloat>>, AnalyticBeamError>;
 }
 
 enum AnalyticTypeInner {
@@ -88,11 +101,6 @@ impl AnalyticBeamGpu {
         Ok(AnalyticBeamGpu { analytic_type })
     }
 
-    /// Given directions, calculate beam-response Jones matrices on the device
-    /// and return a pointer to them.
-    ///
-    /// Note that this function needs to allocate two vectors for azimuths and
-    /// zenith angles from the supplied `azels`.
     pub fn calc_jones_device(
         &self,
         azels: &[AzEl],
@@ -100,35 +108,11 @@ impl AnalyticBeamGpu {
         latitude_rad: f64,
         norm_to_zenith: bool,
     ) -> Result<DevicePointer<Jones<GpuFloat>>, AnalyticBeamError> {
-        unsafe {
-            // Allocate a buffer on the device for results.
-            let d_results = DevicePointer::malloc(
-                self.num_unique_tiles as usize
-                    * freqs_hz.len()
-                    * azels.len()
-                    * std::mem::size_of::<Jones<GpuFloat>>(),
-            )?;
-
-            // Also copy the directions to the device.
-            let (azs, zas): (Vec<GpuFloat>, Vec<GpuFloat>) = azels
-                .iter()
-                .map(|&azel| (azel.az as GpuFloat, azel.za() as GpuFloat))
-                .unzip();
-            let d_azs = DevicePointer::copy_to_device(&azs)?;
-            let d_zas = DevicePointer::copy_to_device(&zas)?;
-            let d_freqs = DevicePointer::copy_to_device(freqs_hz)?;
-
-            self.calc_jones_device_pair_inner(
-                d_azs.get(),
-                d_zas.get(),
-                azels.len().try_into().expect("much fewer than i32::MAX"),
-                d_freqs.get(),
-                freqs_hz.len().try_into().expect("much fewer than i32::MAX"),
-                latitude_rad as GpuFloat,
-                norm_to_zenith,
-                d_results.get_mut() as *mut std::ffi::c_void,
-            )?;
-            Ok(d_results)
+        match &self.analytic_type {
+            AnalyticTypeInner::MwaRts(inner) => {
+                inner.calc_jones_device(azels, freqs_hz, latitude_rad, norm_to_zenith)
+            }
+            AnalyticTypeInner::Ska(inner) => inner.calc_jones_device_pair(),
         }
     }
 

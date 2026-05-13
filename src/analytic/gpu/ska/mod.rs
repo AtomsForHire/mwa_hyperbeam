@@ -50,4 +50,14 @@ impl super::CalcJones for SkaInner {
     ) -> Result<(), AnalyticBeamError> {
         todo!();
     }
+
+    fn calc_jones_device(
+        &self,
+        azels: &[marlu::AzEl],
+        freqs_hz: &[u32],
+        latitude_rad: f64,
+        norm_to_zenith: bool,
+    ) -> Result<DevicePointer<marlu::Jones<GpuFloat>>, AnalyticBeamError> {
+        todo!();
+    }
 }
