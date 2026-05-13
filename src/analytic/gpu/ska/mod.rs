@@ -8,6 +8,7 @@ use ndarray::prelude::*;
 
 /// A struct for holding relavent data for SKA analytic beam
 pub(super) struct SkaInner {
+    pub num_stations: i32,
     pub d_feed_coordinates: DevicePointer<GpuFloat>,
     pub d_feed_angles: DevicePointer<GpuFloat>,
     pub d_phase_centre_ra: GpuFloat,

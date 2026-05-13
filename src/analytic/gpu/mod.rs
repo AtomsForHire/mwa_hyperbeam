@@ -148,10 +148,16 @@ impl AnalyticBeamGpu {
         latitude_rad: f64,
         norm_to_zenith: bool,
     ) -> Result<Array3<Jones<GpuFloat>>, AnalyticBeamError> {
-        let mut results = Array3::from_elem(
-            (self.tile_map.len(), freqs_hz.len(), azels.len()),
-            Jones::default(),
-        );
+        let mut results: Array3 = match self.analytic_type {
+            AnalyticTypeInner::MwaRts(inner) => Array3::from_elem(
+                (inner.tile_map.len(), freqs_hz.len(), azels.len()),
+                Jones::default(),
+            ),
+            AnalyticTypeInner::Ska(inner) => Array3::from_elem(
+                (inner.num_stations, freqs_hz.len(), azels.len()),
+                Jones::default(),
+            ),
+        };
 
         let (azs, zas): (Vec<GpuFloat>, Vec<GpuFloat>) = azels
             .iter()
@@ -182,10 +188,16 @@ impl AnalyticBeamGpu {
         latitude_rad: GpuFloat,
         norm_to_zenith: bool,
     ) -> Result<Array3<Jones<GpuFloat>>, AnalyticBeamError> {
-        let mut results = Array3::from_elem(
-            (self.tile_map.len(), freqs_hz.len(), az_rad.len()),
-            Jones::default(),
-        );
+        let mut results = match self.analytic_type {
+            AnalyticTypeInner::MwaRts(inner) => Array3::from_elem(
+                (inner.tile_map.len(), freqs_hz.len(), az_rad.len()),
+                Jones::default(),
+            ),
+            AnalyticTypeInner::Ska(inner) => Array3::from_elem(
+                (inner.num_stations, freqs_hz.len(), az_rad.len()),
+                Jones::default(),
+            ),
+        };
 
         self.calc_jones_pair_inner(
             az_rad,

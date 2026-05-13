@@ -8,13 +8,13 @@ use crate::{
 
 /// A struct for holding relavent data for MWA analytic beams (both MwaPb and Rts)
 pub(super) struct MwaRtsInner {
-    pub dipole_height: GpuFloat,
-    pub bowties_per_row: u8,
-    pub d_delays: DevicePointer<GpuFloat>,
-    pub d_amps: DevicePointer<GpuFloat>,
+    pub(super) dipole_height: GpuFloat,
+    pub(super) bowties_per_row: u8,
+    pub(super) d_delays: DevicePointer<GpuFloat>,
+    pub(super) d_amps: DevicePointer<GpuFloat>,
     pub(super) num_unique_tiles: i32,
-    tile_map: Vec<i32>,
-    d_tile_map: DevicePointer<i32>,
+    pub(super) tile_map: Vec<i32>,
+    pub(super) d_tile_map: DevicePointer<i32>,
 }
 
 impl MwaRtsInner {
