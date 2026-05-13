@@ -16,6 +16,12 @@ include!("double.rs");
 #[cfg(test)]
 mod tests;
 
+mod mwa_rts;
+mod ska;
+
+use mwa_rts::MwaRtsInner;
+use ska::SkaInner;
+
 use std::{
     collections::hash_map::DefaultHasher,
     convert::TryInto,
@@ -27,26 +33,42 @@ use marlu::{AzEl, Jones};
 use ndarray::prelude::*;
 
 use super::{delay_ints_to_floats, reorder_to_rts, AnalyticBeam, AnalyticBeamError};
-use crate::gpu::{DevicePointer, GpuError, GpuFloat};
+use crate::{
+    analytic::AnalyticType,
+    gpu::{DevicePointer, GpuError, GpuFloat},
+};
+
+trait CalcJones{
+    fn calc_jones_pair_inner(&self) -> Result<(), AnalyticBeamError>;
+}
+
+enum AnalyticTypeInner {
+    MwaRts(MwaRtsInner),
+    Ska(SkaInner),
+}
 
 /// A GPU beam object ready to calculate beam responses.
 pub struct AnalyticBeamGpu {
-    analytic_type: super::AnalyticType,
-    dipole_height: GpuFloat,
-    bowties_per_row: u8,
+    // analytic_type: super::AnalyticType,
+    /// This is now an enum variant, which holds relevant information for MWA/SKA calculations
+    /// Allows us to split MWA/SKA into their own submodules.
+    pub(super) analytic_type: AnalyticTypeInner,
 
-    d_delays: DevicePointer<GpuFloat>,
-    d_amps: DevicePointer<GpuFloat>,
+    // dipole_height: GpuFloat,
+    // bowties_per_row: u8,
+    
+    // d_delays: DevicePointer<GpuFloat>,
+    // d_amps: DevicePointer<GpuFloat>,
 
     /// The number of unique tiles according to the delays and amps.
-    pub(super) num_unique_tiles: i32,
+    // pub(super) num_unique_tiles: i32,
 
     /// This is used to access de-duplicated Jones matrices.
-    tile_map: Vec<i32>,
-
-    /// The device pointer to the `tile_map` (same as the host's memory
-    /// equivalent above).
-    d_tile_map: DevicePointer<i32>,
+    // tile_map: Vec<i32>,
+    
+    // /// The device pointer to the `tile_map` (same as the host's memory
+    // /// equivalent above).
+    // d_tile_map: DevicePointer<i32>,
 }
 
 impl AnalyticBeamGpu {
@@ -61,79 +83,16 @@ impl AnalyticBeamGpu {
         delays_array: ArrayView2<u32>,
         amps_array: ArrayView2<f64>,
     ) -> Result<AnalyticBeamGpu, AnalyticBeamError> {
-        let num_bowties =
-            usize::from(analytic_beam.bowties_per_row * analytic_beam.bowties_per_row);
-        if delays_array.len_of(Axis(1)) != num_bowties {
-            return Err(AnalyticBeamError::IncorrectDelaysArrayColLength {
-                rows: delays_array.len_of(Axis(0)),
-                num_delays: delays_array.len_of(Axis(1)),
-                expected: num_bowties,
-            });
-        }
-        if amps_array.len_of(Axis(1)) != num_bowties
-            && amps_array.len_of(Axis(1)) != num_bowties * 2
-        {
-            return Err(AnalyticBeamError::IncorrectAmpsLength {
-                got: amps_array.len_of(Axis(1)),
-                expected1: num_bowties,
-                expected2: num_bowties * 2,
-            });
-        }
+        let analytic_type = match analytic_beam.beam_type {
+            AnalyticType::MwaPb | AnalyticType::Rts => AnalyticTypeInner::MwaRts(MwaRtsInner::new(
+                analytic_beam,
+                delays_array,
+                amps_array,
+            )?),
+            AnalyticType::Ska | AnalyticType::SkaMean => { AnalyticTypeInner::Ska(SkaInner::new(analytic_beam)?) },
+        };
 
-        // Determine the unique tiles according to the gains and delays. Unlike
-        // FEE, all frequencies give different results, so there's no need to
-        // consider them.
-        let mut unique_tiles = vec![];
-        let mut tile_map = vec![];
-        let mut i_tile = 0;
-        let mut unique_delays = vec![];
-        let mut unique_amps = vec![];
-        for (delays, amps) in delays_array.outer_iter().zip(amps_array.outer_iter()) {
-            let mut unique_tile_hasher = DefaultHasher::new();
-            delays.hash(&mut unique_tile_hasher);
-            // We can't hash f64 values, but we can hash their bits.
-            for amp in amps {
-                amp.to_bits().hash(&mut unique_tile_hasher);
-            }
-            let unique_tile_hash = unique_tile_hasher.finish();
-
-            let (amps, delays) = fix_amps_ndarray(amps, delays);
-            let (amps, delays) = if matches!(analytic_beam.beam_type, super::AnalyticType::Rts) {
-                reorder_to_rts(&amps, &delays)
-            } else {
-                (amps.to_vec(), delay_ints_to_floats(&delays))
-            };
-
-            let this_tile_index = if let Some((index, _)) = unique_tiles
-                .iter()
-                .enumerate()
-                .find(|(_, t)| **t == unique_tile_hash)
-            {
-                index.try_into().expect("smaller than i32::MAX")
-            } else {
-                unique_tiles.push(unique_tile_hash);
-                unique_delays.extend(delays.iter().copied().map(|d| d as GpuFloat));
-                unique_amps.extend(amps.iter().map(|&f| f as GpuFloat));
-                i_tile += 1;
-                i_tile - 1
-            };
-            tile_map.push(this_tile_index);
-        }
-
-        let d_tile_map = DevicePointer::copy_to_device(&tile_map)?;
-        Ok(AnalyticBeamGpu {
-            analytic_type: analytic_beam.beam_type,
-            dipole_height: analytic_beam.dipole_height as GpuFloat,
-            bowties_per_row: analytic_beam.bowties_per_row,
-            d_delays: DevicePointer::copy_to_device(&unique_delays)?,
-            d_amps: DevicePointer::copy_to_device(&unique_amps)?,
-            num_unique_tiles: unique_tiles
-                .len()
-                .try_into()
-                .expect("smaller than i32::MAX"),
-            tile_map,
-            d_tile_map,
-        })
+        Ok (AnalyticBeamGpu { analytic_type: analytic_type })
     }
 
     /// Given directions, calculate beam-response Jones matrices on the device
