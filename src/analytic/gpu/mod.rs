@@ -7,12 +7,6 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 
-// Include Rust bindings to the GPU code, depending on the precision used.
-#[cfg(feature = "gpu-single")]
-include!("single.rs");
-#[cfg(not(feature = "gpu-single"))]
-include!("double.rs");
-
 #[cfg(test)]
 mod tests;
 

@@ -1,3 +1,9 @@
+// Include Rust bindings to the GPU code, depending on the precision used.
+#[cfg(feature = "gpu-single")]
+include!("single.rs");
+#[cfg(not(feature = "gpu-single"))]
+include!("double.rs");
+
 use ndarray::ArrayView2;
 
 use crate::{
@@ -171,6 +177,8 @@ impl MwaRtsInner {
             match self.analytic_type {
                 super::AnalyticType::MwaPb => ANALYTIC_TYPE_MWA_PB,
                 super::AnalyticType::Rts => ANALYTIC_TYPE_RTS,
+                _ => unreachable!(), // NOTE: Should be unreachable, since this submodule is
+                                     // only for MwaPb or Rts types.
             },
             self.dipole_height,
             d_az_rad,
