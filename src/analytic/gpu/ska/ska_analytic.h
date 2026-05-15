@@ -134,12 +134,12 @@ ska_analytic_kernel(const ANALYTIC_TYPE at, const FLOAT *azs, const FLOAT *zas,
 
         // Half-wavelength dipole element pattern calculation from here
         FLOAT phi_p = phi;
-        FLOAT phi_q = phi + PI_2;
+        FLOAT phi_q = phi + M_PI_2;
 
         FLOAT denom_p = gpu_calc_half_wavelength_dipole_denom(theta, phi_p);
         FLOAT denom_q = gpu_calc_half_wavelength_dipole_denom(theta, phi_q);
 
-        FLOAT kl = PI_2;
+        FLOAT kl = M_PI_2;
 
         FLOAT s_phi_p, c_phi_p, s_phi_q, c_phi_q, s_theta, c_theta, s_kl, c_kl;
         SINCOS(phi_p, &s_phi_p, &c_phi_p);
