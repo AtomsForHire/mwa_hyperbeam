@@ -182,7 +182,7 @@ mod gpu {
                 .include("src/fee/gpu/")
                 .file("src/fee/gpu/fee.cu")
                 .include("src/analytic/gpu/mwa_rts/") // NOTE: Updated from here below
-                .file("src/analytic/gpu/mwa_analytic.cu")
+                .file("src/analytic/gpu/mwa_rts/mwa_analytic.cu")
                 .include("src/analytic/gpu/ska")
                 .file("src/analytic/gpu/ska/ska_analytic.cu");
 
@@ -287,7 +287,8 @@ mod gpu {
                 .include(hip_path.join("include/hip"))
                 .include("src/gpu_common/")
                 .file("src/fee/gpu/fee.cu")
-                .file("src/analytic/gpu/mwa_analytic.cu")
+                .include("src/analytic/gpu/mwa_rts/") // NOTE: Updated from here below
+                .file("src/analytic/gpu/mwa_rits/mwa_analytic.cu")
                 .include("src/analytic/gpu/ska")
                 .file("src/analytic/gpu/ska/ska_analytic.cu");
 
