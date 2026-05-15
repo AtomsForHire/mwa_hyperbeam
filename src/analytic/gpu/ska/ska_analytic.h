@@ -78,7 +78,7 @@ ska_analytic_kernel(const ANALYTIC_TYPE at, const FLOAT *azs, const FLOAT *zas,
     // 1.3 Now find beam_lmn from beam_ra and zenith (lst_rad,
     // site_latitude_rad)
     FLOAT d_ra = beam_ra - lst_rad;
-    FLOAT s_d_ra, c_d_ra, s_dec, c_dec, s_pc_dec, c_pc_dec;
+    FLOAT s_d_ra, c_d_ra, s_dec, c_dec, s_pc_dec, c_pc_dec, s_z_dec, c_z_dec;
     SINCOS(d_ra, &s_d_ra, &c_d_ra);
     SINCOS(dec, &s_dec, &c_dec);
     SINCOS(site_latitude_rad, &s_z_dec, &c_z_dec);
