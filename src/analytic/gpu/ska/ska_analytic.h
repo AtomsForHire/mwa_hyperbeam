@@ -67,8 +67,9 @@ ska_analytic_kernel(const ANALYTIC_TYPE at, const FLOAT *azs, const FLOAT *zas,
 
     FLOAT r = SQRT(x * x + y * y);
     FLOAT ha = 0.0;
-    if r
-      != 0.0 { ha = ATAN2(y, x); }
+    if (r != 0.0) {
+      ha = ATAN2(y, x);
+    }
     FLOAT dec = ATAN2(z, r);
 
     // 1.2 Now calculate beam Ra from Ha and lst_rad (beam_dec == dec)
