@@ -64,6 +64,9 @@ pub struct SkaConfig {
     /// Number of stations in array
     pub number_of_stations: usize,
 
+    /// Holds the number of elements per station, used for substation configurations
+    pub num_elems_per_station: Option<Vec<usize>>,
+
     /// Rotation angle for each station
     pub feed_angles_rad: Option<Vec<Vec<f64>>>,
 
