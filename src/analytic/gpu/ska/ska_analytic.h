@@ -151,7 +151,7 @@ ska_analytic_kernel(const ANALYTIC_TYPE at, const FLOAT *azs, const FLOAT *zas,
         FLOAT numer_q_inner = (kl * c_phi_q * s_theta);
         FLOAT s_numer_p_inner, c_numer_p_inner, s_numer_q_inner,
             c_numer_q_inner;
-        SINCOS(numer_p_inner, &s_numer_p_inner, &c_numer_p_innner);
+        SINCOS(numer_p_inner, &s_numer_p_inner, &c_numer_p_inner);
         SINCOS(numer_q_inner, &s_numer_q_inner, &c_numer_q_inner);
 
         FLOAT numer_p = c_numer_p_inner - c_kl;
