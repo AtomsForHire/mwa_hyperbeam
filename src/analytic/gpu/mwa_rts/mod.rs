@@ -4,24 +4,33 @@ include!("single.rs");
 #[cfg(not(feature = "gpu-single"))]
 include!("double.rs");
 
+use marlu::{AzEl, Jones};
+use ndarray::prelude::*;
 use ndarray::ArrayView2;
+use std::{
+    collections::hash_map::DefaultHasher,
+    convert::TryInto,
+    ffi::CStr,
+    hash::{Hash, Hasher},
+};
 
 use crate::{
-    analytic::{AnalyticBeam, AnalyticBeamError, AnalyticType},
-    gpu::DevicePointer,
-    GpuFloat,
+    analytic::{
+        delay_ints_to_floats, reorder_to_rts, AnalyticBeam, AnalyticBeamError, AnalyticType,
+    },
+    gpu::{DevicePointer, GpuError, GpuFloat},
 };
 
 /// A struct for holding relavent data for MWA analytic beams (both MwaPb and Rts)
-pub(super) struct MwaRtsInner {
-    pub(super) analytic_type: AnalyticType,
-    pub(super) dipole_height: GpuFloat,
-    pub(super) bowties_per_row: u8,
-    pub(super) d_delays: DevicePointer<GpuFloat>,
-    pub(super) d_amps: DevicePointer<GpuFloat>,
-    pub(super) num_unique_tiles: i32,
-    pub(super) tile_map: Vec<i32>,
-    pub(super) d_tile_map: DevicePointer<i32>,
+pub(crate) struct MwaRtsInner {
+    pub(crate) analytic_type: AnalyticType,
+    pub(crate) dipole_height: GpuFloat,
+    pub(crate) bowties_per_row: u8,
+    pub(crate) d_delays: DevicePointer<GpuFloat>,
+    pub(crate) d_amps: DevicePointer<GpuFloat>,
+    pub(crate) num_unique_tiles: i32,
+    pub(crate) tile_map: Vec<i32>,
+    pub(crate) d_tile_map: DevicePointer<i32>,
 }
 
 impl MwaRtsInner {
@@ -291,4 +300,44 @@ impl super::CalcJones for MwaRtsInner {
             Ok(d_results)
         }
     }
+}
+
+/// Ensure that any delays of 32 have an amplitude (dipole gain) of 0. The
+/// results are bad otherwise! Also ensure that we have 32 dipole gains (amps)
+/// here. Also return a Rust array of delays for convenience.
+pub(super) fn fix_amps_ndarray(
+    amps: ArrayView1<f64>,
+    delays: ArrayView1<u32>,
+) -> (Vec<f64>, Vec<u32>) {
+    // The lengths of `amps` and `delays` should be checked before calling this
+    // functions; the asserts are a last resort guard.
+    assert!(amps.len() == delays.len() || amps.len() == delays.len() * 2);
+
+    let mut fixed_amps = vec![0.0; delays.len()];
+    fixed_amps
+        .iter_mut()
+        .zip(amps.iter())
+        .zip(delays.iter().cycle())
+        .for_each(|((out_amp, &in_amp), &delay)| {
+            if delay == 32 {
+                *out_amp = 0.0;
+            } else {
+                *out_amp = in_amp;
+            }
+        });
+    if amps.len() == delays.len() * 2 {
+        fixed_amps
+            .iter_mut()
+            .zip(amps.iter().skip(delays.len()))
+            .for_each(|(fixed, &amp)| {
+                *fixed = fixed.min(amp);
+            });
+    }
+
+    // So that we don't have to do .as_slice().unwrap() on our ndarrays outside
+    // of this function, return a Rust array of delays here.
+    let mut delays_a = vec![0; delays.len()];
+    delays_a.iter_mut().zip(delays).for_each(|(da, d)| *da = *d);
+
+    (fixed_amps, delays_a)
 }

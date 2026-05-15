@@ -4,17 +4,23 @@ include!("single.rs");
 #[cfg(not(feature = "gpu-single"))]
 include!("double.rs");
 
-use crate::{
-    analytic::{AnalyticBeam, AnalyticBeamError},
-    gpu::DevicePointer,
-    GpuFloat,
+use marlu::{AzEl, Jones};
+use ndarray::prelude::*;
+use ndarray::ArrayView2;
+use std::{
+    collections::hash_map::DefaultHasher,
+    convert::TryInto,
+    ffi::CStr,
+    hash::{Hash, Hasher},
 };
 
-use marlu::Jones;
-use ndarray::prelude::*;
+use crate::{
+    analytic::{AnalyticBeam, AnalyticBeamError, AnalyticType},
+    gpu::{DevicePointer, GpuError, GpuFloat},
+};
 
 /// A struct for holding relavent data for SKA analytic beam
-pub(super) struct SkaInner {
+pub(crate) struct SkaInner {
     pub num_stations: i32,
     pub d_feed_coordinates: DevicePointer<GpuFloat>,
     pub d_feed_angles: DevicePointer<GpuFloat>,
@@ -28,15 +34,28 @@ impl SkaInner {
     pub(super) unsafe fn new(analytic_beam: &AnalyticBeam) -> Result<Self, AnalyticBeamError> {
         let ska_config = analytic_beam
             .ska_config
+            .clone()
             .expect("SKA config is empty in SkaInner");
 
-        let d_feed_coordinates = DevicePointer::copy_to_device(
-            &ska_config.clone().feed_coordinates.unwrap().into_raw_vec(),
-        )?;
+        let flat_coords_vec: Vec<GpuFloat> = ska_config
+            .clone()
+            .feed_coordinates
+            .unwrap()
+            .iter()
+            .flat_map(|a| a.iter().copied())
+            .collect();
 
-        let d_feed_angles = DevicePointer::copy_to_device(
-            &ska_config.clone().feed_angles_rad.unwrap().into_raw_vec(),
-        )?;
+        let d_feed_coordinates = DevicePointer::copy_to_device(&flat_coords_vec)?;
+
+        let flat_angles_vec: Vec<GpuFloat> = ska_config
+            .clone()
+            .feed_angles_rad
+            .unwrap()
+            .iter()
+            .flat_map(|a| a.iter().copied())
+            .collect();
+
+        let d_feed_angles = DevicePointer::copy_to_device(&flat_angles_vec)?;
 
         let d_num_elems_per_station = DevicePointer::copy_to_device(
             &ska_config
@@ -45,7 +64,7 @@ impl SkaInner {
                 .unwrap()
                 .into_iter()
                 .map(|x| x as i32)
-                .collect(),
+                .collect::<Vec<i32>>(),
         )?;
 
         Ok(SkaInner {
@@ -165,14 +184,28 @@ impl super::CalcJones for SkaInner {
         // analytic beam, found in ../mwa_rts/mod.rs
 
         // 1. Allocate memory on host matching memory on device
-        let results: Array3<Jones<GpuFloat>> = Array3::from_elem(
+        let mut temp_results: Array3<Jones<GpuFloat>> = Array3::from_elem(
             (self.num_stations as usize, freqs_hz.len(), az_rad.len()),
-            elem,
+            Jones::default(),
         );
 
         // 2. Calculate beam responses
-        let device_ptr = 0;
-        todo!();
+        let device_ptr =
+            self.calc_jones_device_pair(az_rad, za_rad, freqs_hz, latitude_rad, norm_to_zenith)?;
+
+        // 3. Copy from device to host
+        unsafe {
+            device_ptr.copy_from_device(temp_results.as_slice_mut().expect("is contiguous"))?;
+        }
+        drop(device_ptr);
+
+        results
+            .outer_iter_mut() // iterate over Axis(0)
+            .enumerate()
+            .for_each(|(row, mut jones_row)| {
+                jones_row.assign(&temp_results.slice(s![row, .., ..]))
+            });
+        Ok(())
     }
 
     fn calc_jones_device(

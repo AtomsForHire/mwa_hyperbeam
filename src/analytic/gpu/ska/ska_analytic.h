@@ -10,7 +10,7 @@ extern "C" {
 typedef enum ANALYTIC_TYPE { SKA } ANALYTIC_TYPE;
 
 const char *ska_gpu_analytic_calc_jones(
-    const ANALYTIC_TYPE at, const FLOAT *d_azs, const FLOAT d_zas,
+    const ANALYTIC_TYPE at, const FLOAT *d_azs, const FLOAT *d_zas,
     int num_directions, const unsigned int *d_freqs_hz, const int num_freqs,
     const FLOAT pc_ra, const FLOAT pc_dec, const int num_stations,
     const FLOAT *d_station_coordinates, const FLOAT *d_station_angles,
@@ -46,7 +46,7 @@ ska_analytic_kernel(const ANALYTIC_TYPE at, const FLOAT *azs, const FLOAT *zas,
                     const int num_freqs, const FLOAT pc_ra, const FLOAT pc_dec,
                     const int num_stations, const FLOAT *station_coordinates,
                     const FLOAT *station_angles,
-                    const FLOAT *num_elems_per_station, const FLOAT lst_rad,
+                    const int *num_elems_per_station, const FLOAT lst_rad,
                     const FLOAT site_latitude_rad, const uint8_t norm_to_zenith,
                     JONES *results) {
   // NOTE: Mostly copy the loop structure from MWA

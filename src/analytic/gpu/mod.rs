@@ -43,7 +43,7 @@ trait CalcJones {
         freqs_hz: &[u32],
         latitude_rad: GpuFloat,
         norm_to_zenith: bool,
-        mut results: ArrayViewMut3<Jones<GpuFloat>>,
+        results: ArrayViewMut3<Jones<GpuFloat>>,
     ) -> Result<(), AnalyticBeamError>;
 
     /// Originally a top level function akin to `calc_jones` and `calc_jones_pair`, but needs to be
@@ -58,7 +58,7 @@ trait CalcJones {
     ) -> Result<DevicePointer<Jones<GpuFloat>>, AnalyticBeamError>;
 }
 
-enum AnalyticTypeInner {
+pub(crate) enum AnalyticTypeInner {
     MwaRts(MwaRtsInner),
     Ska(SkaInner),
 }
@@ -106,7 +106,58 @@ impl AnalyticBeamGpu {
             AnalyticTypeInner::MwaRts(inner) => {
                 inner.calc_jones_device(azels, freqs_hz, latitude_rad, norm_to_zenith)
             }
-            AnalyticTypeInner::Ska(inner) => inner.calc_jones_device_pair(),
+            AnalyticTypeInner::Ska(inner) => {
+                inner.calc_jones_device(azels, freqs_hz, latitude_rad, norm_to_zenith)
+            }
+        }
+    }
+
+    /// Given directions, calculate beam-response Jones matrices
+    /// into the supplied pre-allocated device pointer. This buffer
+    /// should have a shape of (`num_unique_tiles`, `num_freqs`,
+    /// `az_rad_length`). The number of unique tiles can be accessed with
+    /// [`AnalyticBeamGpu::get_num_unique_tiles`]. `d_latitude_rad` is
+    /// populated with the array latitude, if the caller wants the parallactic-
+    /// angle correction to be applied. If the pointer is null, then no
+    /// correction is applied.
+    ///
+    /// # Safety
+    ///
+    /// If `d_results` is too small (correct size described above), then
+    /// undefined behaviour looms.
+    #[allow(clippy::too_many_arguments)]
+    pub unsafe fn calc_jones_device_pair_inner(
+        &self,
+        d_az_rad: *const GpuFloat,
+        d_za_rad: *const GpuFloat,
+        num_directions: i32,
+        d_freqs_hz: *const u32,
+        num_freqs: i32,
+        latitude_rad: GpuFloat,
+        norm_to_zenith: bool,
+        d_results: *mut std::ffi::c_void,
+    ) -> Result<(), AnalyticBeamError> {
+        match &self.analytic_type {
+            AnalyticTypeInner::MwaRts(inner) => inner.calc_jones_device_pair_inner(
+                d_az_rad,
+                d_za_rad,
+                num_directions,
+                d_freqs_hz,
+                num_freqs,
+                latitude_rad,
+                norm_to_zenith,
+                d_results,
+            ),
+            AnalyticTypeInner::Ska(inner) => inner.calc_jones_device_pair_inner(
+                d_az_rad,
+                d_za_rad,
+                num_directions,
+                d_freqs_hz,
+                num_freqs,
+                latitude_rad,
+                norm_to_zenith,
+                d_results,
+            ),
         }
     }
 
@@ -126,13 +177,13 @@ impl AnalyticBeamGpu {
         latitude_rad: f64,
         norm_to_zenith: bool,
     ) -> Result<Array3<Jones<GpuFloat>>, AnalyticBeamError> {
-        let mut results: Array3 = match self.analytic_type {
+        let mut results: Array3<Jones<GpuFloat>> = match &self.analytic_type {
             AnalyticTypeInner::MwaRts(inner) => Array3::from_elem(
                 (inner.tile_map.len(), freqs_hz.len(), azels.len()),
                 Jones::default(),
             ),
             AnalyticTypeInner::Ska(inner) => Array3::from_elem(
-                (inner.num_stations, freqs_hz.len(), azels.len()),
+                (inner.num_stations as usize, freqs_hz.len(), azels.len()),
                 Jones::default(),
             ),
         };
@@ -166,13 +217,13 @@ impl AnalyticBeamGpu {
         latitude_rad: GpuFloat,
         norm_to_zenith: bool,
     ) -> Result<Array3<Jones<GpuFloat>>, AnalyticBeamError> {
-        let mut results = match self.analytic_type {
+        let mut results = match &self.analytic_type {
             AnalyticTypeInner::MwaRts(inner) => Array3::from_elem(
                 (inner.tile_map.len(), freqs_hz.len(), az_rad.len()),
                 Jones::default(),
             ),
             AnalyticTypeInner::Ska(inner) => Array3::from_elem(
-                (inner.num_stations, freqs_hz.len(), az_rad.len()),
+                (inner.num_stations as usize, freqs_hz.len(), az_rad.len()),
                 Jones::default(),
             ),
         };
@@ -203,7 +254,7 @@ impl AnalyticBeamGpu {
         norm_to_zenith: bool,
         mut results: ArrayViewMut3<Jones<GpuFloat>>,
     ) -> Result<(), AnalyticBeamError> {
-        match self.analytic_type {
+        match &self.analytic_type {
             AnalyticTypeInner::MwaRts(inner) => inner.calc_jones_pair_inner(
                 az_rad,
                 za_rad,
@@ -212,13 +263,20 @@ impl AnalyticBeamGpu {
                 norm_to_zenith,
                 results,
             ),
-            AnalyticTypeInner::Ska(inner) => todo!(),
+            AnalyticTypeInner::Ska(inner) => inner.calc_jones_pair_inner(
+                az_rad,
+                za_rad,
+                freqs_hz,
+                latitude_rad,
+                norm_to_zenith,
+                results,
+            ),
         }
     }
 
     /// Get the number of tiles that this [`AnalyticBeamGpu`] applies to.
     pub fn get_total_num_tiles(&self) -> usize {
-        match self.analytic_type {
+        match &self.analytic_type {
             AnalyticTypeInner::MwaRts(inner) => inner.tile_map.len(),
             AnalyticTypeInner::Ska(inner) => inner.num_stations as usize,
         }
@@ -229,7 +287,7 @@ impl AnalyticBeamGpu {
     /// [`AnalyticBeamGpu`]. This is necessary to access de-duplicated beam
     /// Jones matrices.
     pub fn get_tile_map(&self) -> *const i32 {
-        match self.analytic_type {
+        match &self.analytic_type {
             AnalyticTypeInner::MwaRts(inner) => inner.tile_map.as_ptr(),
             AnalyticTypeInner::Ska(inner) => todo!(),
         }
@@ -239,7 +297,7 @@ impl AnalyticBeamGpu {
     /// [`AnalyticBeamGpu`]. This is necessary to access de-duplicated beam
     /// Jones matrices on the device.
     pub fn get_device_tile_map(&self) -> *const i32 {
-        match self.analytic_type {
+        match &self.analytic_type {
             AnalyticTypeInner::MwaRts(inner) => inner.d_tile_map.get(),
             AnalyticTypeInner::Ska(inner) => todo!(),
         }
@@ -248,49 +306,9 @@ impl AnalyticBeamGpu {
     /// Get the number of de-duplicated tiles associated with this
     /// [`AnalyticBeamGpu`].
     pub fn get_num_unique_tiles(&self) -> i32 {
-        match self.analytic_type {
+        match &self.analytic_type {
             AnalyticTypeInner::MwaRts(inner) => inner.num_unique_tiles,
             AnalyticTypeInner::Ska(inner) => todo!(),
         }
     }
-}
-
-/// Ensure that any delays of 32 have an amplitude (dipole gain) of 0. The
-/// results are bad otherwise! Also ensure that we have 32 dipole gains (amps)
-/// here. Also return a Rust array of delays for convenience.
-pub(super) fn fix_amps_ndarray(
-    amps: ArrayView1<f64>,
-    delays: ArrayView1<u32>,
-) -> (Vec<f64>, Vec<u32>) {
-    // The lengths of `amps` and `delays` should be checked before calling this
-    // functions; the asserts are a last resort guard.
-    assert!(amps.len() == delays.len() || amps.len() == delays.len() * 2);
-
-    let mut fixed_amps = vec![0.0; delays.len()];
-    fixed_amps
-        .iter_mut()
-        .zip(amps.iter())
-        .zip(delays.iter().cycle())
-        .for_each(|((out_amp, &in_amp), &delay)| {
-            if delay == 32 {
-                *out_amp = 0.0;
-            } else {
-                *out_amp = in_amp;
-            }
-        });
-    if amps.len() == delays.len() * 2 {
-        fixed_amps
-            .iter_mut()
-            .zip(amps.iter().skip(delays.len()))
-            .for_each(|(fixed, &amp)| {
-                *fixed = fixed.min(amp);
-            });
-    }
-
-    // So that we don't have to do .as_slice().unwrap() on our ndarrays outside
-    // of this function, return a Rust array of delays here.
-    let mut delays_a = vec![0; delays.len()];
-    delays_a.iter_mut().zip(delays).for_each(|(da, d)| *da = *d);
-
-    (fixed_amps, delays_a)
 }

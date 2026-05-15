@@ -288,7 +288,7 @@ mod gpu {
                 .include("src/gpu_common/")
                 .file("src/fee/gpu/fee.cu")
                 .include("src/analytic/gpu/mwa_rts/") // NOTE: Updated from here below
-                .file("src/analytic/gpu/mwa_rits/mwa_analytic.cu")
+                .file("src/analytic/gpu/mwa_rts/mwa_analytic.cu")
                 .include("src/analytic/gpu/ska")
                 .file("src/analytic/gpu/ska/ska_analytic.cu");
 
