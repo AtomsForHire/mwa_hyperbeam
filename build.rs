@@ -287,7 +287,9 @@ mod gpu {
                 .include(hip_path.join("include/hip"))
                 .include("src/gpu_common/")
                 .file("src/fee/gpu/fee.cu")
-                .file("src/analytic/gpu/analytic.cu");
+                .file("src/analytic/gpu/mwa_analytic.cu")
+                .include("src/analytic/gpu/ska")
+                .file("src/analytic/gpu/ska/ska_analytic.cu");
 
             println!("cargo:rerun-if-env-changed=HIP_FLAGS");
             if let Some(p) = env::var_os("HIP_FLAGS") {
