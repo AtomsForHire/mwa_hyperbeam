@@ -30,6 +30,15 @@ const char *ska_gpu_analytic_calc_jones(
 extern "C" {
 #endif // __cplusplus
 
+__device__ FLOAT gpu_calc_half_wavelength_dipole_denom(FLOAT theta, FLOAT phi) {
+  FLOAT s_theta, c_theta, s_phi, c_phi;
+  SINCOS(theta, &s_theta, &c_theta);
+  SINCOS(phi, &s_phi, &c_phi);
+
+  FLOAT result = 1.0 + c_phi * c_phi * (c_theta * c_theta - 1.0);
+  return result;
+}
+
 // Kernel goes in this block
 __global__ void
 ska_analytic_kernel(const ANALYTIC_TYPE at, const FLOAT *azs, const FLOAT *zas,
@@ -177,15 +186,6 @@ ska_analytic_kernel(const ANALYTIC_TYPE at, const FLOAT *azs, const FLOAT *zas,
       }
     }
   }
-}
-
-__device__ FLOAT gpu_calc_half_wavelength_dipole_denom(FLOAT theta, FLOAT phi) {
-  FLOAT s_theta, c_theta, s_phi, c_phi;
-  SINCOS(theta, &s_theta, &c_theta);
-  SINCOS(phi, &s_phi, &c_phi);
-
-  FLOAT result = 1.0 + c_phi * c_phi * (c_theta * c_theta - 1.0);
-  return result;
 }
 
 extern "C" const char *ska_gpu_analytic_calc_jones(
