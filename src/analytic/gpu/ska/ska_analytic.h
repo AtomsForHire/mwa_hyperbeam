@@ -199,10 +199,11 @@ extern "C" const char *ska_gpu_analytic_calc_jones(
   dim3 gridDim, blockDim;
   blockDim.x = warpSize;
   gridDim.x = (int)ceil((double)num_directions / (double)blockDim.x);
-  ska_analytic_kernel(at, d_azs, d_zas, num_directions, d_freqs_hz, num_freqs,
-                      pc_ra, pc_dec, num_stations, d_station_coordinates,
-                      d_station_angles, d_num_elems_per_station, lst_rad,
-                      site_latitude_rad, norm_to_zenith, (JONES *)d_results);
+  ska_analytic_kernel<<<gridDim, blockDim>>>(
+      at, d_azs, d_zas, num_directions, d_freqs_hz, num_freqs, pc_ra, pc_dec,
+      num_stations, d_station_coordinates, d_station_angles,
+      d_num_elems_per_station, lst_rad, site_latitude_rad, norm_to_zenith,
+      (JONES *)d_results);
   gpuError_t error_id;
 #ifdef DEBUG
   error_id = gpuDeviceSynchronize();
