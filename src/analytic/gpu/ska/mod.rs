@@ -18,6 +18,7 @@ pub(super) struct SkaInner {
     pub num_stations: i32,
     pub d_feed_coordinates: DevicePointer<GpuFloat>,
     pub d_feed_angles: DevicePointer<GpuFloat>,
+    pub d_num_elems_per_station: DevicePointer<i32>,
     pub d_phase_centre_ra: GpuFloat,
     pub d_phase_centre_dec: GpuFloat,
     pub d_site_latitude_rad: GpuFloat,
@@ -29,15 +30,29 @@ impl SkaInner {
             .ska_config
             .expect("SKA config is empty in SkaInner");
 
-        let d_feed_coordinates =
-            DevicePointer::copy_to_device(&ska_config.feed_coordinates.unwrap().into_raw_vec())?;
+        let d_feed_coordinates = DevicePointer::copy_to_device(
+            &ska_config.clone().feed_coordinates.unwrap().into_raw_vec(),
+        )?;
 
-        let d_feed_angles =
-            DevicePointer::copy_to_device(&ska_config.feed_angles_rad.unwrap().into_raw_vec())?;
+        let d_feed_angles = DevicePointer::copy_to_device(
+            &ska_config.clone().feed_angles_rad.unwrap().into_raw_vec(),
+        )?;
+
+        let d_num_elems_per_station = DevicePointer::copy_to_device(
+            &ska_config
+                .clone()
+                .num_elems_per_station
+                .unwrap()
+                .into_iter()
+                .map(|x| x as i32)
+                .collect(),
+        )?;
 
         Ok(SkaInner {
+            num_stations: ska_config.number_of_stations as i32,
             d_feed_coordinates,
             d_feed_angles,
+            d_num_elems_per_station,
             d_phase_centre_ra: ska_config.phase_centre.ra as GpuFloat,
             d_phase_centre_dec: ska_config.phase_centre.dec as GpuFloat,
             d_site_latitude_rad: ska_config.site_latitude_rad as GpuFloat,
@@ -108,8 +123,14 @@ impl SkaInner {
             num_directions,
             d_freqs_hz,
             num_freqs,
-            self.num_unique_tiles,
+            self.d_phase_centre_ra,
+            self.d_phase_centre_dec,
+            self.num_stations,
+            self.d_feed_coordinates.get(),
+            self.d_feed_angles.get(),
+            self.d_num_elems_per_station.get(),
             latitude_rad, // NOTE: This should hopefully be lst_rad
+            self.d_site_latitude_rad,
             norm_to_zenith as _,
             d_results,
         );
@@ -120,7 +141,7 @@ impl SkaInner {
                 .to_str()
                 .unwrap_or("<cannot read GPU error string>");
             let our_error_str =
-                format!("analytic.h:analytic_calc_jones_gpu failed with: {error_message}");
+                format!("ska_analytic.h:ska_analytic_calc_jones_gpu failed with: {error_message}");
             Err(AnalyticBeamError::Gpu(GpuError::Kernel {
                 msg: our_error_str.into(),
                 file: file!(),
