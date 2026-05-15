@@ -7,13 +7,14 @@ include!("double.rs");
 use ndarray::ArrayView2;
 
 use crate::{
-    analytic::{AnalyticBeam, AnalyticBeamError},
+    analytic::{AnalyticBeam, AnalyticBeamError, AnalyticType},
     gpu::DevicePointer,
     GpuFloat,
 };
 
 /// A struct for holding relavent data for MWA analytic beams (both MwaPb and Rts)
 pub(super) struct MwaRtsInner {
+    pub(super) analytic_type: AnalyticType,
     pub(super) dipole_height: GpuFloat,
     pub(super) bowties_per_row: u8,
     pub(super) d_delays: DevicePointer<GpuFloat>,
@@ -90,6 +91,7 @@ impl MwaRtsInner {
 
         let d_tile_map = DevicePointer::copy_to_device(&tile_map)?;
         Ok(MwaRtsInner {
+            analytic_type: analytic_beam.beam_type,
             dipole_height: analytic_beam.dipole_height as GpuFloat,
             bowties_per_row: analytic_beam.bowties_per_row,
             d_delays: DevicePointer::copy_to_device(&unique_delays)?,
@@ -173,7 +175,7 @@ impl MwaRtsInner {
 
         // The return value is a pointer to a CUDA/HIP error string. If it's
         // null then everything is fine.
-        let error_message_ptr = gpu_analytic_calc_jones(
+        let error_message_ptr = mwa_gpu_analytic_calc_jones(
             match self.analytic_type {
                 super::AnalyticType::MwaPb => ANALYTIC_TYPE_MWA_PB,
                 super::AnalyticType::Rts => ANALYTIC_TYPE_RTS,

@@ -1,3 +1,9 @@
+// Include Rust bindings to the GPU code, depending on the precision used.
+#[cfg(feature = "gpu-single")]
+include!("single.rs");
+#[cfg(not(feature = "gpu-single"))]
+include!("double.rs");
+
 use crate::{
     analytic::{AnalyticBeam, AnalyticBeamError},
     gpu::DevicePointer,
@@ -95,25 +101,16 @@ impl SkaInner {
 
         // The return value is a pointer to a CUDA/HIP error string. If it's
         // null then everything is fine.
-        let error_message_ptr = gpu_analytic_calc_jones(
-            match self.analytic_type {
-                super::AnalyticType::MwaPb => ANALYTIC_TYPE_MWA_PB,
-                super::AnalyticType::Rts => ANALYTIC_TYPE_RTS,
-                _ => unreachable!(), // NOTE: Should be unreachable, since this submodule is
-                                     // only for MwaPb or Rts types.
-            },
-            self.dipole_height,
+        let error_message_ptr = ska_gpu_analytic_calc_jones(
+            ANALYTIC_TYPE_SKA,
             d_az_rad,
             d_za_rad,
             num_directions,
             d_freqs_hz,
             num_freqs,
-            self.d_delays.get(),
-            self.d_amps.get(),
             self.num_unique_tiles,
-            latitude_rad,
+            latitude_rad, // NOTE: This should hopefully be lst_rad
             norm_to_zenith as _,
-            self.bowties_per_row,
             d_results,
         );
         if error_message_ptr.is_null() {
