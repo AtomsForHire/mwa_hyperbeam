@@ -189,7 +189,7 @@ __device__ FLOAT gpu_calc_half_wavelength_dipole_denom(FLOAT theta, FLOAT phi) {
 }
 
 extern "C" const char *ska_gpu_analytic_calc_jones(
-    const ANALYTIC_TYPE at, const FLOAT *d_azs, const FLOAT d_zas,
+    const ANALYTIC_TYPE at, const FLOAT *d_azs, const FLOAT *d_zas,
     int num_directions, const unsigned int *d_freqs_hz, const int num_freqs,
     const FLOAT pc_ra, const FLOAT pc_dec, const int num_stations,
     const FLOAT *d_station_coordinates, const FLOAT *d_station_angles,
