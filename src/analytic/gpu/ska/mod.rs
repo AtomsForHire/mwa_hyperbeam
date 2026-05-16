@@ -23,6 +23,8 @@ use crate::{
 pub(crate) struct SkaInner {
     pub num_stations: i32,
     pub d_feed_coordinates: DevicePointer<GpuFloat>,
+    pub tile_map: Vec<i32>,
+    pub d_tile_map: DevicePointer<i32>,
     pub d_feed_angles: DevicePointer<GpuFloat>,
     pub d_num_elems_per_station: DevicePointer<i32>,
     pub d_phase_centre_ra: GpuFloat,
@@ -67,11 +69,17 @@ impl SkaInner {
                 .collect::<Vec<i32>>(),
         )?;
 
+        let tile_map: Vec<i32> = (0..ska_config.number_of_stations as i32).collect();
+
+        let d_tile_map = DevicePointer::copy_to_device(&tile_map)?;
+
         Ok(SkaInner {
             num_stations: ska_config.number_of_stations as i32,
             d_feed_coordinates,
             d_feed_angles,
             d_num_elems_per_station,
+            tile_map,
+            d_tile_map,
             d_phase_centre_ra: ska_config.phase_centre.ra as GpuFloat,
             d_phase_centre_dec: ska_config.phase_centre.dec as GpuFloat,
             d_site_latitude_rad: ska_config.site_latitude_rad as GpuFloat,

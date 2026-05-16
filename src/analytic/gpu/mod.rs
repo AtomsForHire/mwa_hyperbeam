@@ -289,7 +289,7 @@ impl AnalyticBeamGpu {
     pub fn get_tile_map(&self) -> *const i32 {
         match &self.analytic_type {
             AnalyticTypeInner::MwaRts(inner) => inner.tile_map.as_ptr(),
-            AnalyticTypeInner::Ska(inner) => todo!(),
+            AnalyticTypeInner::Ska(inner) => inner.tile_map.as_ptr(),
         }
     }
 
@@ -299,7 +299,7 @@ impl AnalyticBeamGpu {
     pub fn get_device_tile_map(&self) -> *const i32 {
         match &self.analytic_type {
             AnalyticTypeInner::MwaRts(inner) => inner.d_tile_map.get(),
-            AnalyticTypeInner::Ska(inner) => todo!(),
+            AnalyticTypeInner::Ska(inner) => inner.d_tile_map.get(),
         }
     }
 
