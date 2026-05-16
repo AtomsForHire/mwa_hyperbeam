@@ -116,6 +116,7 @@ ska_analytic_kernel(const ANALYTIC_TYPE at, const FLOAT *azs, const FLOAT *zas,
     // 2.1 Loop over each station
     int elem_offset = 0;
     for (int i_station = 0; i_station < num_stations; i_station++) {
+      int num_elems = num_elems_per_station[i_station];
       // 2.2 Loop over all frequencies
       for (int i_freq = 0; i_freq < num_freqs; i_freq++) {
         FLOAT lambda_m = VEL_C / freqs_hz[i_freq];
@@ -124,7 +125,6 @@ ska_analytic_kernel(const ANALYTIC_TYPE at, const FLOAT *azs, const FLOAT *zas,
 
         // 2.3 Loop over individual elems to calculate array factor for this
         // station
-        int num_elems = num_elems_per_station[i_station];
         for (int i_elem = 0; i_elem < num_elems; i_elem++) {
           int idx = (i_elem * 3) + (elem_offset * 3);
           FLOAT x_loc = station_coordinates[idx];
@@ -137,7 +137,6 @@ ska_analytic_kernel(const ANALYTIC_TYPE at, const FLOAT *azs, const FLOAT *zas,
 
           array_factor += MAKE_COMPLEX(c_phase, s_phase);
         }
-        elem_offset += num_elems;
 
         // Normalise array factor
         array_factor *= 1.0 / num_elems;
@@ -185,6 +184,7 @@ ska_analytic_kernel(const ANALYTIC_TYPE at, const FLOAT *azs, const FLOAT *zas,
                  num_directions * i_freq) +
                 i_direction] = jones;
       }
+      elem_offset += num_elems;
     }
   }
 }
