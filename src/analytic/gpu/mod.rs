@@ -308,7 +308,7 @@ impl AnalyticBeamGpu {
     pub fn get_num_unique_tiles(&self) -> i32 {
         match &self.analytic_type {
             AnalyticTypeInner::MwaRts(inner) => inner.num_unique_tiles,
-            AnalyticTypeInner::Ska(inner) => todo!(),
+            AnalyticTypeInner::Ska(inner) => inner.num_stations,
         }
     }
 }
