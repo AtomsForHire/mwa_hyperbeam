@@ -769,8 +769,8 @@ impl AnalyticBeam {
                 let num_elems = coordinates.nrows();
 
                 // NOTE: Some hack fixes =====================================
-                // TODO: These were taken from LLMs, was really frustrated, just needed something.
-                // NEED TO CHECK LATER
+                // NOTE: These conversions were done my LLM, but I have checked manually and it does
+                // recreate the old coordinates
                 let site_latitude_rad = ska_config.site_latitude_rad;
                 let zenith_radec = RADec {
                     ra: lst_rad,

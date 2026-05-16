@@ -114,7 +114,7 @@ ska_analytic_kernel(const ANALYTIC_TYPE at, const FLOAT *azs, const FLOAT *zas,
     // 2. Calculate Jones matrix for all stations at each frequency
 
     // 2.1 Loop over each station
-    int prev_num_elems = 0;
+    int elem_offset = 0;
     for (int i_station = 0; i_station < num_stations; i_station++) {
       // 2.2 Loop over all frequencies
       for (int i_freq = 0; i_freq < num_freqs; i_freq++) {
@@ -126,17 +126,18 @@ ska_analytic_kernel(const ANALYTIC_TYPE at, const FLOAT *azs, const FLOAT *zas,
         // station
         int num_elems = num_elems_per_station[i_station];
         for (int i_elem = 0; i_elem < num_elems; i_elem++) {
-          int idx = (i_elem * 3) + (i_station * prev_num_elems * 3);
+          int idx = (i_elem * 3) + (elem_offset * 3);
           FLOAT x_loc = station_coordinates[idx];
           FLOAT y_loc = station_coordinates[idx + 1];
 
           FLOAT tot_phase = (-x_loc * dl + y_loc * dm) / lambda_m;
+          FLOAT angle = -M_2PI * tot_phase;
           FLOAT s_phase, c_phase;
-          SINCOS(tot_phase, &s_phase, &c_phase);
+          SINCOS(angle, &s_phase, &c_phase);
 
           array_factor += MAKE_COMPLEX(c_phase, s_phase);
         }
-        prev_num_elems = num_elems;
+        elem_offset += num_elems;
 
         // Normalise array factor
         array_factor *= 1.0 / num_elems;
