@@ -22,6 +22,7 @@ fn infer_static(name: &str) -> bool {
     }
 }
 
+// TODO: Update build steps for new structure
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
 
@@ -180,8 +181,11 @@ mod gpu {
                 .include("src/gpu_common/")
                 .include("src/fee/gpu/")
                 .file("src/fee/gpu/fee.cu")
-                .include("src/analytic/gpu/")
-                .file("src/analytic/gpu/analytic.cu");
+                .include("src/analytic/gpu/mwa_rts/") // NOTE: Updated from here below
+                .file("src/analytic/gpu/mwa_rts/mwa_analytic.cu")
+                .include("src/analytic/gpu/ska")
+                .file("src/analytic/gpu/ska/ska_analytic.cu");
+
             // If $CXX is not set but $CUDA_PATH is, search for
             // $CUDA_PATH/bin/g++ and if it exists, set that as $CXX.
             if env::var_os("CXX").is_none() {
@@ -283,7 +287,10 @@ mod gpu {
                 .include(hip_path.join("include/hip"))
                 .include("src/gpu_common/")
                 .file("src/fee/gpu/fee.cu")
-                .file("src/analytic/gpu/analytic.cu");
+                .include("src/analytic/gpu/mwa_rts/") // NOTE: Updated from here below
+                .file("src/analytic/gpu/mwa_rts/mwa_analytic.cu")
+                .include("src/analytic/gpu/ska")
+                .file("src/analytic/gpu/ska/ska_analytic.cu");
 
             println!("cargo:rerun-if-env-changed=HIP_FLAGS");
             if let Some(p) = env::var_os("HIP_FLAGS") {

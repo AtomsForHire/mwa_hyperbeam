@@ -2,82 +2,81 @@
 
 #include <math.h>
 #include <stdint.h>
-#include <stdlib.h>
 #include <stdio.h>
-
+#include <stdlib.h>
 
 #ifdef SINGLE
-#define FLOAT  float
+#define FLOAT float
 #define SINCOS sincosf
-#define SIN    sinf
-#define COS    cosf
-#define FABS   fabsf
-#define ATAN2  atan2f
-#define SQRT   sqrtf
+#define SIN sinf
+#define COS cosf
+#define FABS fabsf
+#define ATAN2 atan2f
+#define SQRT sqrtf
 #else
-#define FLOAT  double
+#define FLOAT double
 #define SINCOS sincos
-#define SIN    sin
-#define COS    cos
-#define FABS   fabs
-#define ATAN2  atan2
-#define SQRT   sqrt
+#define SIN sin
+#define COS cos
+#define FABS fabs
+#define ATAN2 atan2
+#define SQRT sqrt
 #endif // SINGLE
 
 // HIP-specific defines.
 #if __HIPCC__
-#define gpuMalloc             hipMalloc
-#define gpuFree               hipFree
-#define gpuMemcpy             hipMemcpy
+#define gpuMalloc hipMalloc
+#define gpuFree hipFree
+#define gpuMemcpy hipMemcpy
 #define gpuMemcpyHostToDevice hipMemcpyHostToDevice
-#define gpuGetErrorString     hipGetErrorString
-#define gpuGetLastError       hipGetLastError
-#define gpuDeviceSynchronize  hipDeviceSynchronize
-#define gpuError_t            hipError_t
-#define gpuSuccess            hipSuccess
+#define gpuGetErrorString hipGetErrorString
+#define gpuGetLastError hipGetLastError
+#define gpuDeviceSynchronize hipDeviceSynchronize
+#define gpuError_t hipError_t
+#define gpuSuccess hipSuccess
 
 #ifdef SINGLE
-#define CADD         hipCaddf
-#define CSUB         hipCsubf
-#define CMUL         hipCmulf
-#define CDIV         hipCdivf
-#define COMPLEX      hipFloatComplex
+#define CADD hipCaddf
+#define CSUB hipCsubf
+#define CMUL hipCmulf
+#define CDIV hipCdivf
+#define COMPLEX hipFloatComplex
 #define MAKE_COMPLEX make_hipFloatComplex
 #else
-#define CADD         hipCadd
-#define CSUB         hipCsub
-#define CMUL         hipCmul
-#define CDIV         hipCdiv
-#define COMPLEX      hipDoubleComplex
+#define CADD hipCadd
+#define CSUB hipCsub
+#define CMUL hipCmul
+#define CDIV hipCdiv
+#define COMPLEX hipDoubleComplex
 #define MAKE_COMPLEX make_hipDoubleComplex
 #endif // SINGLE
 
 // CUDA-specific defines.
 #elif __CUDACC__
-#define gpuMalloc             cudaMalloc
-#define gpuFree               cudaFree
-#define gpuMemcpy             cudaMemcpy
+#define gpuMalloc cudaMalloc
+#define gpuFree cudaFree
+#define gpuMemcpy cudaMemcpy
 #define gpuMemcpyHostToDevice cudaMemcpyHostToDevice
-#define gpuGetErrorString     cudaGetErrorString
-#define gpuGetLastError       cudaGetLastError
-#define gpuDeviceSynchronize  cudaDeviceSynchronize
-#define gpuError_t            cudaError_t
-#define gpuSuccess            cudaSuccess
-#define warpSize              32
+#define gpuGetErrorString cudaGetErrorString
+#define gpuGetLastError cudaGetLastError
+#define gpuDeviceSynchronize cudaDeviceSynchronize
+#define gpuError_t cudaError_t
+#define gpuSuccess cudaSuccess
+#define warpSize 32
 
 #ifdef SINGLE
-#define CADD         cuCaddf
-#define CSUB         cuCsubf
-#define CMUL         cuCmulf
-#define CDIV         cuCdivf
-#define COMPLEX      cuFloatComplex
+#define CADD cuCaddf
+#define CSUB cuCsubf
+#define CMUL cuCmulf
+#define CDIV cuCdivf
+#define COMPLEX cuFloatComplex
 #define MAKE_COMPLEX make_cuFloatComplex
 #else
-#define CADD         cuCadd
-#define CSUB         cuCsub
-#define CMUL         cuCmul
-#define CDIV         cuCdiv
-#define COMPLEX      cuDoubleComplex
+#define CADD cuCadd
+#define CSUB cuCsub
+#define CMUL cuCmul
+#define CDIV cuCdiv
+#define COMPLEX cuDoubleComplex
 #define MAKE_COMPLEX make_cuDoubleComplex
 #endif // SINGLE
 #endif // __HIPCC_
@@ -103,130 +102,132 @@ const FLOAT VEL_C = 299792458.0;
  * (HA, Dec.) coordinates. Both have units of radians.
  */
 typedef struct HADec {
-    /// Hour Angle [radians]
-    FLOAT ha;
-    /// Declination [radians]
-    FLOAT dec;
+  /// Hour Angle [radians]
+  FLOAT ha;
+  /// Declination [radians]
+  FLOAT dec;
 } HADec;
 
 /**
  * (Azimuth, Zenith Angle) coordinates. Both have units of radians.
  */
 typedef struct AzZA {
-    /// Azimuth [radians]
-    FLOAT az;
-    /// Zenith Angle [radians]
-    FLOAT za;
+  /// Azimuth [radians]
+  FLOAT az;
+  /// Zenith Angle [radians]
+  FLOAT za;
 } AzZA;
 
 typedef struct JONES {
-    COMPLEX j00;
-    COMPLEX j01;
-    COMPLEX j10;
-    COMPLEX j11;
+  COMPLEX j00;
+  COMPLEX j01;
+  COMPLEX j10;
+  COMPLEX j11;
 } JONES;
 
 inline __device__ COMPLEX operator*(COMPLEX a, FLOAT b) {
-    return MAKE_COMPLEX(a.x * b, a.y * b);
+  return MAKE_COMPLEX(a.x * b, a.y * b);
 }
 
-inline __device__ void operator*=(COMPLEX &a, FLOAT b) { 
-    a.x *= b;
-    a.y *= b;
+inline __device__ void operator*=(COMPLEX &a, FLOAT b) {
+  a.x *= b;
+  a.y *= b;
 }
 
 inline __device__ void operator+=(COMPLEX &a, COMPLEX b) {
-    a.x += b.x;
-    a.y += b.y;
+  a.x += b.x;
+  a.y += b.y;
 }
 
 inline __device__ COMPLEX operator*(COMPLEX a, COMPLEX b) {
-    return MAKE_COMPLEX(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
+  return MAKE_COMPLEX(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
 }
 
 inline __device__ void operator*=(COMPLEX &a, COMPLEX b) {
-    a = MAKE_COMPLEX(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
+  a = MAKE_COMPLEX(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
 }
 
 // Convert a (azimuth, elevation) to HADec, given a location (latitude).
 //
 // This code is adapted from ERFA. The copyright notice associated with ERFA and
 // the original code is at the bottom of this file.
-inline __device__ HADec azel_to_hadec(FLOAT azimuth_rad, FLOAT elevation_rad, FLOAT latitude_rad) {
-    /* Useful trig functions. */
-    FLOAT sa, ca, se, ce, sp, cp;
-    SINCOS(azimuth_rad, &sa, &ca);
-    SINCOS(elevation_rad, &se, &ce);
-    SINCOS(latitude_rad, &sp, &cp);
+inline __device__ HADec azel_to_hadec(FLOAT azimuth_rad, FLOAT elevation_rad,
+                                      FLOAT latitude_rad) {
+  /* Useful trig functions. */
+  FLOAT sa, ca, se, ce, sp, cp;
+  SINCOS(azimuth_rad, &sa, &ca);
+  SINCOS(elevation_rad, &se, &ce);
+  SINCOS(latitude_rad, &sp, &cp);
 
-    /* HA,Dec unit vector. */
-    FLOAT x = -ca * ce * sp + se * cp;
-    FLOAT y = -sa * ce;
-    FLOAT z = ca * ce * cp + se * sp;
+  /* HA,Dec unit vector. */
+  FLOAT x = -ca * ce * sp + se * cp;
+  FLOAT y = -sa * ce;
+  FLOAT z = ca * ce * cp + se * sp;
 
-    /* To spherical. */
-    FLOAT r = SQRT(x * x + y * y);
-    HADec hadec;
-    hadec.ha = (r != 0.0) ? ATAN2(y, x) : 0.0;
-    hadec.dec = ATAN2(z, r);
+  /* To spherical. */
+  FLOAT r = SQRT(x * x + y * y);
+  HADec hadec;
+  hadec.ha = (r != 0.0) ? ATAN2(y, x) : 0.0;
+  hadec.dec = ATAN2(z, r);
 
-    return hadec;
+  return hadec;
 }
 
 // Convert a HADec to AzZA, given a location (latitude).
 //
 // This code is adapted from ERFA. The copyright notice associated with ERFA and
 // the original code is at the bottom of this file.
-inline __device__ AzZA hadec_to_azza(FLOAT hour_angle_rad, FLOAT dec_rad, FLOAT latitude_rad) {
-    /* Useful trig functions. */
-    FLOAT sh, ch, sd, cd, sp, cp;
-    SINCOS(hour_angle_rad, &sh, &ch);
-    SINCOS(dec_rad, &sd, &cd);
-    SINCOS(latitude_rad, &sp, &cp);
+inline __device__ AzZA hadec_to_azza(FLOAT hour_angle_rad, FLOAT dec_rad,
+                                     FLOAT latitude_rad) {
+  /* Useful trig functions. */
+  FLOAT sh, ch, sd, cd, sp, cp;
+  SINCOS(hour_angle_rad, &sh, &ch);
+  SINCOS(dec_rad, &sd, &cd);
+  SINCOS(latitude_rad, &sp, &cp);
 
-    /* Az,Alt unit vector. */
-    FLOAT x = -ch * cd * sp + sd * cp;
-    FLOAT y = -sh * cd;
-    FLOAT z = ch * cd * cp + sd * sp;
+  /* Az,Alt unit vector. */
+  FLOAT x = -ch * cd * sp + sd * cp;
+  FLOAT y = -sh * cd;
+  FLOAT z = ch * cd * cp + sd * sp;
 
-    /* To spherical. */
-    FLOAT r = SQRT(x * x + y * y);
-    FLOAT a = (r != 0.0) ? ATAN2(y, x) : 0.0;
-    AzZA azza;
-    azza.az = (a < 0.0) ? a + M_2PI : a;
-    azza.za = M_PI_2 - ATAN2(z, r);
+  /* To spherical. */
+  FLOAT r = SQRT(x * x + y * y);
+  FLOAT a = (r != 0.0) ? ATAN2(y, x) : 0.0;
+  AzZA azza;
+  azza.az = (a < 0.0) ? a + M_2PI : a;
+  azza.za = M_PI_2 - ATAN2(z, r);
 
-    return azza;
+  return azza;
 }
 
 // Get the parallactic angle from a HADec position, given a location (latitude).
 //
 // This code is adapted from ERFA. The copyright notice associated with ERFA and
 // the original code is at the bottom of this file.
-inline static __device__ FLOAT get_parallactic_angle(HADec hadec, FLOAT latitude_rad) {
-    FLOAT s_phi, c_phi, s_ha, c_ha, s_dec, c_dec, cqsz, sqsz;
-    SINCOS(latitude_rad, &s_phi, &c_phi);
-    SINCOS(hadec.ha, &s_ha, &c_ha);
-    SINCOS(hadec.dec, &s_dec, &c_dec);
+inline static __device__ FLOAT get_parallactic_angle(HADec hadec,
+                                                     FLOAT latitude_rad) {
+  FLOAT s_phi, c_phi, s_ha, c_ha, s_dec, c_dec, cqsz, sqsz;
+  SINCOS(latitude_rad, &s_phi, &c_phi);
+  SINCOS(hadec.ha, &s_ha, &c_ha);
+  SINCOS(hadec.dec, &s_dec, &c_dec);
 
-    sqsz = c_phi * s_ha;
-    cqsz = s_phi * c_dec - c_phi * s_dec * c_ha;
-    return ((sqsz != 0.0 || cqsz != 0.0) ? ATAN2(sqsz, cqsz) : 0.0);
+  sqsz = c_phi * s_ha;
+  cqsz = s_phi * c_dec - c_phi * s_dec * c_ha;
+  return ((sqsz != 0.0 || cqsz != 0.0) ? ATAN2(sqsz, cqsz) : 0.0);
 }
 
 #endif // BINDGEN
 
-#define GPUCHECK(error)                                               \
-    {                                                                 \
-        gpuError_t localError = error;                                \
-        if ((localError != gpuSuccess))                               \
-        {                                                             \
-            const char *errorString = gpuGetErrorString(localError);  \
-            printf("error: '%s'(%d) from %s at %s:%d\n", errorString, \
-                   localError, #error, __FILE__, __LINE__);           \
-            return errorString;                                       \
-        }                                                             \
-    }
+#define GPUCHECK(error)                                                        \
+  {                                                                            \
+    gpuError_t localError = error;                                             \
+    if ((localError != gpuSuccess)) {                                          \
+      const char *errorString = gpuGetErrorString(localError);                 \
+      printf("error: '%s'(%d) from %s at %s:%d\n", errorString, localError,    \
+             #error, __FILE__, __LINE__);                                      \
+      return errorString;                                                      \
+    }                                                                          \
+  }
 
 /*----------------------------------------------------------------------
 **

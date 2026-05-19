@@ -17,7 +17,7 @@ cfg_if::cfg_if! {
     if #[cfg(any(feature = "cuda", feature = "hip"))] {
         use ndarray::prelude::*;
 
-        use super::AnalyticBeamGpu;
+        use super::{AnalyticBeamGpu, gpu::AnalyticTypeInner};
         use crate::gpu::{DevicePointer, GpuFloat};
     }
 }
@@ -388,14 +388,20 @@ pub unsafe extern "C" fn analytic_calc_jones_gpu(
     let az = slice::from_raw_parts(az_rad, num_azza_usize);
     let za = slice::from_raw_parts(za_rad, num_azza_usize);
     let freqs = slice::from_raw_parts(freqs_hz, num_freqs_usize);
-    let results = ArrayViewMut3::from_shape_ptr(
-        (
-            beam.num_unique_tiles as usize,
-            num_freqs_usize,
-            num_azza_usize,
+    let results = match &beam.analytic_type {
+        AnalyticTypeInner::MwaRts(inner) => ArrayViewMut3::from_shape_ptr(
+            (
+                inner.num_unique_tiles as usize,
+                num_freqs_usize,
+                num_azza_usize,
+            ),
+            jones.cast(),
         ),
-        jones.cast(),
-    );
+        AnalyticTypeInner::Ska(inner) => ArrayViewMut3::from_shape_ptr(
+            (inner.num_stations as usize, num_freqs_usize, num_azza_usize),
+            jones.cast(),
+        ),
+    };
     ffi_error!(beam.calc_jones_pair_inner(az, za, freqs, latitude_rad, norm_to_zenith, results));
     0
 }
@@ -620,7 +626,11 @@ pub unsafe extern "C" fn get_num_unique_analytic_tiles(
     gpu_analytic_beam: *mut AnalyticBeamGpu,
 ) -> i32 {
     let beam = &*gpu_analytic_beam;
-    beam.num_unique_tiles
+
+    match &beam.analytic_type {
+        AnalyticTypeInner::MwaRts(inner) => inner.num_unique_tiles,
+        AnalyticTypeInner::Ska(inner) => inner.num_stations,
+    }
 }
 
 /// Free the memory associated with an `AnalyticBeamGpu` beam.
