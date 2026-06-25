@@ -27,7 +27,7 @@ targets = ["x86_64-unknown-linux-gnu"]
 crate-type = ["rlib", "staticlib", "cdylib"]
 
 [features]
-default = ["cuda"]
+default = []
 hdf5-static = ["hdf5-metno-sys"]
 cuda-static = []
 all-static = ["hdf5-static", "cuda-static"]
